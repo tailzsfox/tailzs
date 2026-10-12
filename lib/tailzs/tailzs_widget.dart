@@ -172,7 +172,7 @@ class _TailzsWidgetState extends State<TailzsWidget> {
               child: custom_widgets.TailzsQuantTerminal(
                 width: double.infinity,
                 height: double.infinity,
-                isSub: true,
+                isSub: false,
                 dossierDocs: tailzsDossiersRecordList,
               ),
             ),

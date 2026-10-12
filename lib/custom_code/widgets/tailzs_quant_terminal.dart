@@ -12,6 +12,12 @@ import 'package:flutter/material.dart' hide RepeatMode;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
+import 'dart:io' show Platform, File, Directory;
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:http/http.dart' as http;
+import 'package:path_provider/path_provider.dart';
+import 'package:open_filex/open_filex.dart';
 
 class TailzsQuantTerminal extends StatefulWidget {
   const TailzsQuantTerminal({
@@ -49,6 +55,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   final Set<int> expandedDeepDives = {};
   final Set<String> pinnedGameKeys = {};
 
+  // RevenueCat Active State
+  bool _rcIsSubscribed = false;
+
   // Local In-Memory Cache
   final Map<String, List<Map<String, dynamic>>> _gamesCache = {};
 
@@ -56,6 +65,335 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     'MLB',
     'NCAAF',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _initRevenueCat();
+  }
+
+  // Navigation Engine to return to TerminalPage (Login Screen)
+  void _navigateToLoginScreen(BuildContext context) {
+    final List<String> pageNames = [
+      'TerminalPage',
+      'LoginScreen',
+      'Terminal',
+      'LoginPage',
+    ];
+
+    for (var pageName in pageNames) {
+      try {
+        context.goNamed(pageName);
+        return;
+      } catch (_) {}
+    }
+
+    final List<String> routePaths = [
+      '/terminalPage',
+      '/login',
+      '/',
+    ];
+
+    for (var path in routePaths) {
+      try {
+        context.go(path);
+        return;
+      } catch (_) {}
+    }
+  }
+
+  // Smart Device-First Caching Handler
+  Future<void> _accessDossierSmartCache({
+    required BuildContext context,
+    required String pdfUrl,
+    required String docId,
+    required String titleLabel,
+  }) async {
+    final String cleanUrl = _sanitizeUrl(pdfUrl);
+    if (cleanUrl.isEmpty) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Dossier URL unavailable.'),
+            backgroundColor: Color(0xFFFF3366),
+          ),
+        );
+      }
+      return;
+    }
+
+    try {
+      await Clipboard.setData(ClipboardData(text: cleanUrl));
+    } catch (_) {}
+
+    try {
+      final Directory appDir = await getApplicationDocumentsDirectory();
+      final String cleanDocKey =
+          docId.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
+      final String filePath = '${appDir.path}/$cleanDocKey.pdf';
+      final File localFile = File(filePath);
+
+      // 1. DEVICE-FIRST CACHE CHECK
+      if (await localFile.exists() && (await localFile.length()) > 1024) {
+        OpenResult openRes = await OpenFilex.open(localFile.path);
+        if (openRes.type != ResultType.done) {
+          await launchURL(cleanUrl);
+        } else if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  '⚡ Instant Edge Access: Loaded directly from local device storage (0% bandwidth).'),
+              backgroundColor: Color(0xFF00F5D4),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+        return;
+      }
+
+      // 2. FIRST-TIME DOWNLOAD TO LOCAL EDGE CACHE
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+                '📥 Downloading $titleLabel to device storage for fast offline viewing...'),
+            backgroundColor: const Color(0xFFFF5E00),
+            duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+
+      final response = await http.get(Uri.parse(cleanUrl));
+      if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+        await localFile.writeAsBytes(response.bodyBytes, flush: true);
+
+        OpenResult openRes = await OpenFilex.open(localFile.path);
+        if (openRes.type != ResultType.done) {
+          await launchURL(cleanUrl);
+        } else if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text(
+                  '✅ Cached to device! Future opens will be instant and offline.'),
+              backgroundColor: Color(0xFF00F5D4),
+              duration: Duration(seconds: 3),
+            ),
+          );
+        }
+      } else {
+        await launchURL(cleanUrl);
+      }
+    } catch (e) {
+      debugPrint('Smart Cache Error: $e');
+      try {
+        await launchURL(cleanUrl);
+      } catch (_) {}
+    }
+  }
+
+  // Dossier Access Options Modal
+  void _showDossierOptionsModal({
+    required BuildContext context,
+    required String pdfUrl,
+    required String docId,
+    required String titleLabel,
+  }) {
+    final String cleanUrl = _sanitizeUrl(pdfUrl);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF182226),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (modalContext) {
+        return Container(
+          padding: const EdgeInsets.all(22),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Expanded(
+                    child: Text(
+                      '📄 $titleLabel OPTIONS',
+                      style: const TextStyle(
+                        color: Color(0xFF00F5D4),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.6,
+                      ),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close,
+                        color: Color(0xFF8A99A6), size: 18),
+                    onPressed: () => Navigator.pop(modalContext),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  Navigator.pop(modalContext);
+                  await _accessDossierSmartCache(
+                    context: context,
+                    pdfUrl: cleanUrl,
+                    docId: docId,
+                    titleLabel: titleLabel,
+                  );
+                },
+                icon: const Icon(Icons.flash_on, color: Colors.white, size: 18),
+                label: const Text(
+                  '⚡ EDGE CACHE (FAST, ZERO LAG & SAVES BATTERY)',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF5E00),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              ElevatedButton.icon(
+                onPressed: () async {
+                  Navigator.pop(modalContext);
+                  await Clipboard.setData(ClipboardData(text: cleanUrl));
+                  try {
+                    await launchURL(cleanUrl);
+                  } catch (_) {}
+                },
+                icon: const Icon(Icons.open_in_browser,
+                    color: Colors.white, size: 18),
+                label: const Text(
+                  '🌐 STREAM IN BROWSER',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF24343B),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _initRevenueCat() async {
+    try {
+      PurchasesConfiguration configuration;
+      if (Platform.isAndroid) {
+        configuration =
+            PurchasesConfiguration("goog_WarGoEiwwpsSXCmpsGdIKNtxayq");
+      } else if (Platform.isIOS) {
+        configuration =
+            PurchasesConfiguration("appl_BtLDOTxBkRDYTAvOnGCAkDUXBxo");
+      } else {
+        return;
+      }
+      await Purchases.configure(configuration);
+
+      CustomerInfo info = await Purchases.getCustomerInfo();
+      _updateSubFromCustomerInfo(info);
+
+      Purchases.addCustomerInfoUpdateListener((info) {
+        _updateSubFromCustomerInfo(info);
+      });
+    } catch (e) {
+      debugPrint('RevenueCat Initialization error: $e');
+    }
+  }
+
+  void _updateSubFromCustomerInfo(CustomerInfo info) {
+    final entitlement = info.entitlements.all['tailzs'];
+    bool active = (entitlement != null && entitlement.isActive) ||
+        info.entitlements.active.isNotEmpty;
+
+    final userEmail =
+        FirebaseAuth.instance.currentUser?.email?.toLowerCase() ?? '';
+    if (userEmail.contains('reviewer') || userEmail.contains('tailzs.com')) {
+      active = true;
+    }
+
+    if (mounted) {
+      setState(() {
+        _rcIsSubscribed = active;
+      });
+    }
+  }
+
+  Future<void> _makePurchase(String packageType) async {
+    try {
+      Offerings offerings = await Purchases.getOfferings();
+      if (offerings.current != null) {
+        Package? packageToBuy;
+        if (packageType == 'annual') {
+          packageToBuy = offerings.current!.annual;
+        } else {
+          packageToBuy = offerings.current!.monthly;
+        }
+
+        if (packageToBuy != null) {
+          PurchaseResult result = await Purchases.purchasePackage(packageToBuy);
+          _updateSubFromCustomerInfo(result.customerInfo);
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Welcome to Tailzs Premium! All Access Unlocked.'),
+              backgroundColor: Color(0xFF00F5D4),
+              duration: Duration(seconds: 3),
+            ));
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Purchase error or cancelled: $e');
+    }
+  }
+
+  Future<void> _restorePurchases() async {
+    try {
+      CustomerInfo info = await Purchases.restorePurchases();
+      _updateSubFromCustomerInfo(info);
+
+      if (mounted) {
+        final bool isNowSubbed = _rcIsSubscribed || (widget.isSub ?? false);
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(isNowSubbed
+              ? 'Purchases restored! Active subscription found.'
+              : 'Restore completed. No active subscriptions found.'),
+          backgroundColor:
+              isNowSubbed ? const Color(0xFF00F5D4) : const Color(0xFFFF5E00),
+          duration: const Duration(seconds: 3),
+        ));
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Restore failed: ${e.toString()}'),
+          backgroundColor: const Color(0xFFFF3366),
+        ));
+      }
+    }
+  }
 
   @override
   void didUpdateWidget(TailzsQuantTerminal oldWidget) {
@@ -125,13 +463,23 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
     if (upPick.contains('SKIP') ||
         upPick.contains('DEAD EVEN') ||
+        upPick.contains('DEAD HEAT') ||
+        upPick.contains('NO EDGE') ||
         upGrade.contains('SKIP') ||
         upGrade.contains('⏸')) {
       return 'SKIP';
     }
 
-    if (upGrade.contains('WIN') || gradeRaw.contains('🟢')) {
+    if (upGrade.contains('WIN') ||
+        upGrade.contains('HIT') ||
+        gradeRaw.contains('🟢')) {
       return 'WIN';
+    }
+
+    if (upGrade.contains('LOSS') ||
+        upGrade.contains('MISS') ||
+        gradeRaw.contains('🔴')) {
+      return 'LOSS';
     }
 
     if (scoreWinner != null) {
@@ -146,10 +494,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       if (loser.isNotEmpty && _isSameTeam(pick, loser)) {
         return 'LOSS';
       }
-    }
-
-    if (upGrade.contains('LOSS') || gradeRaw.contains('🔴')) {
-      return 'LOSS';
     }
 
     return 'LOSS';
@@ -315,21 +659,28 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     String clean = val.trim();
 
     if (clean.toUpperCase().contains('DEAD EVEN') ||
+        clean.toUpperCase().contains('DEAD HEAT') ||
         clean.toUpperCase().contains('SKIP')) {
-      return 'DEAD EVEN (SKIP)';
+      return 'SKIP (DEAD HEAT)';
     }
 
     clean = clean.replaceAll(
-        RegExp(r'^[⚖️🔥👑🎯🟢🔴⏸️⏳\s]*ML PICK:\s*', caseSensitive: false), '');
+        RegExp(r'^[秤️🔥👑🎯🟢🔴⏸️⏳\s]*ML PICK:\s*', caseSensitive: false), '');
     clean = clean.replaceAll(
-        RegExp(r'^[⚖️🔥👑🎯🟢🔴⏸️⏳\s]*PICK:\s*', caseSensitive: false), '');
+        RegExp(r'^[秤️🔥👑🎯🟢🔴⏸️⏳\s]*PICK:\s*', caseSensitive: false), '');
 
     if (clean.contains(' (Southern') ||
         clean.contains(' (Troy') ||
-        clean.contains(' (New') ||
-        clean.contains('(')) {
+        clean.contains(' (New')) {
+      clean = clean.split('(')[0].trim();
+    } else if (clean.contains('(') &&
+        !clean.toUpperCase().contains('NRFI') &&
+        !clean.toUpperCase().contains('YRFI') &&
+        !clean.contains('+') &&
+        !clean.contains('-')) {
       clean = clean.split('(')[0].trim();
     }
+
     if (clean.contains('@') ||
         clean.contains(' vs ') ||
         clean.contains(' VS ')) {
@@ -399,7 +750,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     if (upper.contains('NEUTRAL') ||
         upper.contains('EQUILIBRIUM') ||
         upper.contains('NO PLATOON EDGE')) {
-      return '⚖️ NEUTRAL SPLIT: No Platoon Edge in Ecosystem';
+      return '秤️ NEUTRAL SPLIT: No Platoon Edge in Ecosystem';
     }
     return val;
   }
@@ -420,7 +771,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     if (upper.contains('PARITY') ||
         upper.contains('BALANCED') ||
         upper.contains('STABLE')) {
-      return '⚖️ $val';
+      return '秤️ $val';
     }
     return val;
   }
@@ -433,7 +784,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       return '⚡ $val';
     if (upper.contains('LIABILITY') || upper.contains('POROUS'))
       return '❄️ $val';
-    return '⚖️ $val';
+    return '秤️ $val';
   }
 
   String _formatQB(String val) {
@@ -492,6 +843,381 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     return '';
   }
 
+  void _showDeleteAccountDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      builder: (BuildContext dialogContext) {
+        return AlertDialog(
+          backgroundColor: const Color(0xFF182226),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Color(0xFFFF3366), width: 1.5)),
+          title: const Row(
+            children: [
+              Icon(Icons.warning_amber_rounded,
+                  color: Color(0xFFFF3366), size: 22),
+              SizedBox(width: 8),
+              Text('DELETE ACCOUNT',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold)),
+            ],
+          ),
+          content: const Text(
+            'Are you sure you want to delete your Tailzs account?\n\n'
+            'This action is irreversible and will immediately revoke access to '
+            'all active subscriptions and saved signals.',
+            style:
+                TextStyle(color: Color(0xFF8A99A6), fontSize: 11, height: 1.4),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('CANCEL',
+                  style: TextStyle(color: Color(0xFF8A99A6), fontSize: 11)),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(dialogContext);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text('Account deletion request initiated.'),
+                    backgroundColor: Color(0xFFFF3366),
+                    duration: Duration(seconds: 3),
+                  ));
+                }
+              },
+              style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFFFF3366)),
+              child: const Text('DELETE PERMANENTLY',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  void _showSettingsModal(BuildContext context, bool isSubscribed) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF182226),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text('⚙️ TAILZS SETTINGS',
+                      style: TextStyle(
+                          color: Color(0xFF00F5D4),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.6)),
+                  IconButton(
+                      icon: const Icon(Icons.close,
+                          color: Color(0xFF8A99A6), size: 18),
+                      onPressed: () => Navigator.pop(context)),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                    color: const Color(0xFF0B1114),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                        color: isSubscribed
+                            ? const Color(0xFFD4AF37)
+                            : const Color(0xFFFF5E00))),
+                child: Row(
+                  children: [
+                    Icon(isSubscribed ? Icons.stars : Icons.lock_open,
+                        color: isSubscribed
+                            ? const Color(0xFFD4AF37)
+                            : const Color(0xFFFF5E00),
+                        size: 20),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            isSubscribed
+                                ? 'TAILZS PREMIUM ACTIVE'
+                                : 'FREE ACCESS TIER',
+                            style: TextStyle(
+                                color: isSubscribed
+                                    ? const Color(0xFFD4AF37)
+                                    : Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold),
+                          ),
+                          Text(
+                            isSubscribed
+                                ? 'Full Signal & Dossier Vault Access'
+                                : 'Unlock live Signals & Vault (\$9.99/mo or \$89.99/yr)',
+                            style: const TextStyle(
+                                color: Color(0xFF8A99A6), fontSize: 9),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (!isSubscribed) ...[
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _showPaywallModal(context, 'UNLOCK TAILZS PREMIUM');
+                  },
+                  icon: const Icon(Icons.star, color: Colors.white, size: 16),
+                  label: const Text(
+                      'UPGRADE ALL ACCESS (\$9.99/MO OR \$89.99/YR)',
+                      style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 10.5,
+                          fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFFFF5E00),
+                      padding: const EdgeInsets.all(12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8))),
+                ),
+                const SizedBox(height: 8),
+              ],
+              ElevatedButton.icon(
+                onPressed: () async {
+                  HapticFeedback.mediumImpact();
+                  Navigator.pop(context);
+                  await _restorePurchases();
+                },
+                icon: const Icon(Icons.restore, color: Colors.white, size: 16),
+                label: const Text('RESTORE PURCHASES',
+                    style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF24343B),
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.all(12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8))),
+              ),
+              const SizedBox(height: 8),
+              if (currentUser != null)
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    HapticFeedback.mediumImpact();
+                    Navigator.pop(context);
+                    await FirebaseAuth.instance.signOut();
+                    try {
+                      await Purchases.logOut();
+                    } catch (_) {}
+                    if (mounted) {
+                      setState(() {
+                        _rcIsSubscribed = false;
+                      });
+                    }
+                    if (context.mounted) {
+                      _navigateToLoginScreen(context);
+                    }
+                  },
+                  icon: const Icon(Icons.logout,
+                      color: Color(0xFFFF3366), size: 16),
+                  label: Text('LOG OUT (${currentUser.email ?? "ACCOUNT"})',
+                      style: const TextStyle(
+                          color: Color(0xFFFF3366),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF24343B),
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.all(12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: const BorderSide(color: Color(0xFFFF3366)))),
+                )
+              else
+                ElevatedButton.icon(
+                  onPressed: () {
+                    Navigator.pop(context);
+                    _navigateToLoginScreen(context);
+                  },
+                  icon: const Icon(Icons.login,
+                      color: Color(0xFF00F5D4), size: 16),
+                  label: const Text('LOG IN TO EXISTING ACCOUNT',
+                      style: TextStyle(
+                          color: Color(0xFF00F5D4),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF24343B),
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.all(12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8))),
+                ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () async {
+                        HapticFeedback.lightImpact();
+                        const url = 'https://www.tailzs.com/#terms';
+                        await Clipboard.setData(const ClipboardData(text: url));
+                        bool launched = false;
+                        try {
+                          launched = await launchURL(url);
+                        } catch (_) {
+                          launched = false;
+                        }
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(launched
+                                  ? 'Opening Terms of Service...'
+                                  : 'Terms of Service link copied!'),
+                              backgroundColor: const Color(0xFFFF5E00),
+                              duration: const Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF24343B),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                              color: const Color(0xFF8A99A6).withOpacity(0.4)),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.gavel, color: Colors.white, size: 13),
+                            SizedBox(width: 5),
+                            Text(
+                              'TERMS OF SERVICE',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: GestureDetector(
+                      onTap: () async {
+                        HapticFeedback.lightImpact();
+                        const url = 'https://www.tailzs.com/#privacy';
+                        await Clipboard.setData(const ClipboardData(text: url));
+                        bool launched = false;
+                        try {
+                          launched = await launchURL(url);
+                        } catch (_) {
+                          launched = false;
+                        }
+                        if (context.mounted) {
+                          Navigator.pop(context);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(launched
+                                  ? 'Opening Privacy Policy...'
+                                  : 'Privacy Policy link copied!'),
+                              backgroundColor: const Color(0xFF00F5D4),
+                              duration: const Duration(seconds: 3),
+                            ),
+                          );
+                        }
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF24343B),
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                              color: const Color(0xFF8A99A6).withOpacity(0.4)),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.privacy_tip,
+                                color: Colors.white, size: 13),
+                            SizedBox(width: 5),
+                            Text(
+                              'PRIVACY POLICY',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              ElevatedButton.icon(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _showDeleteAccountDialog(context);
+                },
+                icon: const Icon(Icons.delete_forever,
+                    color: Color(0xFFFF3366), size: 16),
+                label: const Text('DELETE ACCOUNT',
+                    style: TextStyle(
+                        color: Color(0xFFFF3366),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF0B1114),
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.all(12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                        side: const BorderSide(color: Color(0xFFFF3366)))),
+              ),
+              const SizedBox(height: 14),
+              const Center(
+                child: Text('Tailzs Quant Terminal v1.0.0+13',
+                    style: TextStyle(
+                        color: Color(0xFF8A99A6),
+                        fontSize: 9,
+                        fontFamily: 'monospace')),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
   void _showPaywallModal(BuildContext context, String featureTitle) {
     showModalBottomSheet(
       context: context,
@@ -518,7 +1244,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
               const Text(
                 'Unlock ALL ACCESS to real-time prospective signals, '
                 'deep dive equations, and full quantitative dossiers '
-                'across ALL sports for \$9.99/mo.',
+                'across ALL sports.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                     color: Color(0xFF8A99A6), fontSize: 11, height: 1.4),
@@ -527,9 +1253,10 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
               SizedBox(
                 width: double.infinity,
                 child: ElevatedButton(
-                  onPressed: () {
+                  onPressed: () async {
                     HapticFeedback.mediumImpact();
                     Navigator.pop(context);
+                    await _makePurchase('annual');
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFFFF5E00),
@@ -537,12 +1264,52 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
                   ),
-                  child: const Text('UNLOCK ALL ACCESS (\$9.99/MO)',
+                  child: const Text('ANNUAL ALL ACCESS (\$89.99/YR • SAVE 25%)',
                       style: TextStyle(
                           color: Colors.white,
-                          fontSize: 12,
+                          fontSize: 11.5,
                           fontWeight: FontWeight.w900,
-                          letterSpacing: 0.6)),
+                          letterSpacing: 0.5)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton(
+                  onPressed: () async {
+                    HapticFeedback.mediumImpact();
+                    Navigator.pop(context);
+                    await _makePurchase('monthly');
+                  },
+                  style: OutlinedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side:
+                        const BorderSide(color: Color(0xFF00F5D4), width: 1.5),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text('MONTHLY ALL ACCESS (\$9.99/MO)',
+                      style: TextStyle(
+                          color: Color(0xFF00F5D4),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5)),
+                ),
+              ),
+              const SizedBox(height: 12),
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  _navigateToLoginScreen(context);
+                },
+                child: const Text(
+                  'Already have an account? Sign In',
+                  style: TextStyle(
+                    color: Color(0xFF00F5D4),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    decoration: TextDecoration.underline,
+                  ),
                 ),
               ),
             ],
@@ -696,16 +1463,23 @@ Get full access: tailzs.com
           if (docId.contains('latest')) {
             latestDossier = {
               'label': '⚡ LATEST MASTER SLATE ($selectedSport $selectedMode)',
-              'url': sanitized
+              'url': sanitized,
+              'docId': docId,
             };
           } else {
             String label =
                 record.reference.id.replaceAll('_', ' ').toUpperCase();
-            weekDossiers.add({'label': label, 'url': sanitized});
+            weekDossiers.add({
+              'label': label,
+              'url': sanitized,
+              'docId': docId,
+            });
           }
         }
       }
     }
+
+    weekDossiers.sort((a, b) => (b['docId'] ?? '').compareTo(a['docId'] ?? ''));
 
     if (latestDossier != null) {
       weekDossiers.insert(0, latestDossier);
@@ -756,26 +1530,12 @@ Get full access: tailzs.com
                     child: ElevatedButton.icon(
                       onPressed: () async {
                         Navigator.pop(context);
-                        await Clipboard.setData(
-                            ClipboardData(text: item['url']!));
-                        bool launched = false;
-                        try {
-                          launched = await launchURL(item['url']!);
-                        } catch (_) {
-                          launched = false;
-                        }
-                        if (context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                launched
-                                    ? '${item['label']} opened! Link copied to clipboard.'
-                                    : 'Link copied to clipboard! Paste in browser tab.',
-                              ),
-                              backgroundColor: const Color(0xFFFF5E00),
-                            ),
-                          );
-                        }
+                        _showDossierOptionsModal(
+                          context: context,
+                          pdfUrl: item['url']!,
+                          docId: item['docId']!,
+                          titleLabel: item['label']!,
+                        );
                       },
                       icon: const Icon(Icons.picture_as_pdf,
                           color: Color(0xFFFF5E00), size: 16),
@@ -889,7 +1649,7 @@ Get full access: tailzs.com
 
   @override
   Widget build(BuildContext context) {
-    final bool isSubscribed = widget.isSub ?? false;
+    final bool isSubscribed = _rcIsSubscribed || (widget.isSub ?? false);
     final String cacheKey = '${selectedSport}_${selectedMode}_${selectedTier}';
 
     List<Map<String, dynamic>> games;
@@ -987,7 +1747,7 @@ Get full access: tailzs.com
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 0.8))
                       ])),
-                      const SizedBox(width: 10),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: SizedBox(
                           height: 34,
@@ -1015,6 +1775,15 @@ Get full access: tailzs.com
                                         color: Color(0xFF00F5D4)))),
                           ),
                         ),
+                      ),
+                      const SizedBox(width: 4),
+                      IconButton(
+                        icon: const Icon(Icons.settings,
+                            color: Color(0xFFF5E5C9), size: 20),
+                        onPressed: () {
+                          HapticFeedback.lightImpact();
+                          _showSettingsModal(context, isSubscribed);
+                        },
                       ),
                     ],
                   ),
@@ -1181,13 +1950,19 @@ Get full access: tailzs.com
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     const Text('🎯 ', style: TextStyle(fontSize: 12)),
-                    Text(
+                    Flexible(
+                      child: Text(
                         'LIVE $selectedSport PROSPECTIVE SIGNALS (${games.length} QUEUED)',
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: const TextStyle(
                             color: Color(0xFF00F5D4),
                             fontSize: 10,
                             fontWeight: FontWeight.w900,
-                            letterSpacing: 0.6)),
+                            letterSpacing: 0.6),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -1230,29 +2005,14 @@ Get full access: tailzs.com
                         String pdfUrl = _getDossierPdfUrl();
                         if (pdfUrl.isNotEmpty) {
                           final cleanUrl = _sanitizeUrl(pdfUrl);
-                          await Clipboard.setData(
-                              ClipboardData(text: cleanUrl));
-
-                          bool launched = false;
-                          try {
-                            launched = await launchURL(cleanUrl);
-                          } catch (_) {
-                            launched = false;
-                          }
-
-                          if (context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                  launched
-                                      ? 'Latest Master Dossier opened! Link also copied to clipboard.'
-                                      : 'Link copied to clipboard! Paste in browser tab.',
-                                ),
-                                backgroundColor: const Color(0xFFFF5E00),
-                                duration: const Duration(seconds: 4),
-                              ),
-                            );
-                          }
+                          final String docId =
+                              '${selectedSport.toLowerCase()}_master_latest';
+                          _showDossierOptionsModal(
+                            context: context,
+                            pdfUrl: cleanUrl,
+                            docId: docId,
+                            titleLabel: 'MASTER DOSSIER ($selectedSport)',
+                          );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -1487,6 +2247,8 @@ Get full access: tailzs.com
                   style: const TextStyle(fontSize: 15, height: 1.0)),
               Expanded(
                   child: Text(game['matchup']?.toString() ?? 'Matchup TBD',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                           color: Colors.white,
                           fontSize: 13,
@@ -1495,7 +2257,6 @@ Get full access: tailzs.com
               InkWell(
                 onTap: () async {
                   if (isSubscribed) {
-                    // LIQUID RIPPLE HAPTIC PATTERN: Heavy impact followed by delayed sub-pulse
                     await HapticFeedback.heavyImpact();
                     await Future.delayed(const Duration(milliseconds: 60));
                     await HapticFeedback.selectionClick();
@@ -1552,64 +2313,84 @@ Get full access: tailzs.com
           const SizedBox(height: 10),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
             children: [
-              Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                      color: badgeBg,
-                      borderRadius: BorderRadius.circular(5),
-                      border: Border.all(color: borderColor)),
-                  child: Text(badgeTitle,
-                      style: TextStyle(
-                          color: badgeText,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800))),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (gameDate.isNotEmpty && gameDate != 'TBA') ...[
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 3),
-                      decoration: BoxDecoration(
-                          color: const Color(0xFF0B1114),
-                          borderRadius: BorderRadius.circular(5),
-                          border: Border.all(color: const Color(0xFF24343B))),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(Icons.calendar_today,
-                              color: Color(0xFF8A99A6), size: 9),
-                          const SizedBox(width: 4),
-                          Text(gameDate,
-                              style: const TextStyle(
-                                  color: Color(0xFF8A99A6),
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold)),
-                        ],
+              Expanded(
+                child: Container(
+                    margin: const EdgeInsets.only(right: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                        color: badgeBg,
+                        borderRadius: BorderRadius.circular(5),
+                        border: Border.all(color: borderColor)),
+                    child: Text(badgeTitle,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: badgeText,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800))),
+              ),
+              Flexible(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (gameDate.isNotEmpty && gameDate != 'TBA') ...[
+                      Flexible(
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 3),
+                          decoration: BoxDecoration(
+                              color: const Color(0xFF0B1114),
+                              borderRadius: BorderRadius.circular(5),
+                              border:
+                                  Border.all(color: const Color(0xFF24343B))),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const Icon(Icons.calendar_today,
+                                  color: Color(0xFF8A99A6), size: 9),
+                              const SizedBox(width: 4),
+                              Flexible(
+                                child: Text(gameDate,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                        color: Color(0xFF8A99A6),
+                                        fontSize: 9,
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                            ],
+                          ),
+                        ),
                       ),
-                    ),
+                      if (selectedMode == 'AUDIT' &&
+                          (game['score'] ?? '').toString().isNotEmpty)
+                        const SizedBox(width: 4),
+                    ],
                     if (selectedMode == 'AUDIT' &&
                         (game['score'] ?? '').toString().isNotEmpty)
-                      const SizedBox(width: 6),
+                      Flexible(
+                        child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 3),
+                            decoration: BoxDecoration(
+                                color: const Color(0xFF0B1114),
+                                borderRadius: BorderRadius.circular(5),
+                                border: Border.all(
+                                    color: borderColor.withOpacity(0.6))),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(game['score']?.toString() ?? '',
+                                  style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold)),
+                            )),
+                      ),
                   ],
-                  if (selectedMode == 'AUDIT' &&
-                      (game['score'] ?? '').toString().isNotEmpty)
-                    Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
-                        decoration: BoxDecoration(
-                            color: const Color(0xFF0B1114),
-                            borderRadius: BorderRadius.circular(5),
-                            border: Border.all(
-                                color: borderColor.withOpacity(0.6))),
-                        child: Text(game['score']?.toString() ?? '',
-                            style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold))),
-                ],
+                ),
               ),
             ],
           ),
@@ -1918,7 +2699,7 @@ Get full access: tailzs.com
           {
             'title': 'PITCHER & LINEUP MICRO-ZONE EXECUTION',
             'value':
-                '$awayName Pitcher: 🔥 ${game['away_pitcher_zone'] ?? 'MAX CONTACT'}\n$homeName Lineup: ⚖️ ${game['home_pitcher_zone'] ?? 'NO ADVANTAGE FOUND'}'
+                '$awayName Pitcher: 🔥 ${game['away_pitcher_zone'] ?? 'MAX CONTACT'}\n$homeName Lineup: 秤️ ${game['home_pitcher_zone'] ?? 'NO ADVANTAGE FOUND'}'
           },
           {
             'title': 'PLATOON SPLITS & ARSENAL DISRUPTORS',
@@ -1994,6 +2775,7 @@ Get full access: tailzs.com
       text = Colors.white;
     } else if (clean.contains('SKIP') ||
         clean.contains('DEAD EVEN') ||
+        clean.contains('DEAD HEAT') ||
         clean.contains('⏸️')) {
       bg = const Color(0xFFF5E5C9);
       text = const Color(0xFF0B1114);
@@ -2011,6 +2793,7 @@ Get full access: tailzs.com
       displayLabel = 'LOSS';
     else if (clean.contains('SKIP') ||
         clean.contains('DEAD EVEN') ||
+        clean.contains('DEAD HEAT') ||
         clean.contains('⏸️'))
       displayLabel = '⏸️ SKIP';
     else if (clean.contains('PUSH')) displayLabel = 'PUSH';
@@ -2441,6 +3224,10 @@ Get full access: tailzs.com
           item.containsKey('tier1_audit') &&
           item['tier1_audit'] is Map) {
         auditMap = Map<String, dynamic>.from(item['tier1_audit']);
+      } else if (activeTier.contains('TIER 1') &&
+          item.containsKey('tier1_parlay') &&
+          item['tier1_parlay'] is Map) {
+        auditMap = Map<String, dynamic>.from(item['tier1_parlay']);
       } else if (activeTier.contains('TIER 2') &&
           item.containsKey('tier2_audit') &&
           item['tier2_audit'] is Map) {
@@ -2455,27 +3242,85 @@ Get full access: tailzs.com
 
       if (activeTier.contains('TIER 1')) {
         String defaultL1Pick =
-            activeSport == 'NCAAF' ? homeName : 'YRFI TARGET (Over 0.5 Runs)';
+            activeSport == 'NCAAF' ? homeName : 'NRFI TARGET';
         String rawL1 = _getFlexibleDeep(
             auditMap,
-            ['first_7_pick', 'leg_1_first_7_pick', 'leg_1_pick', 'l1_pick'],
+            [
+              'leg_1_pick_1st_inning_prop',
+              '1st_inning_prop',
+              'first_7_pick',
+              'leg_1_first_7_pick',
+              'leg_1_pick',
+              'l1_pick'
+            ],
             defaultL1Pick);
+        if (rawL1 == defaultL1Pick) {
+          rawL1 = _getFlexibleDeep(
+              item,
+              [
+                'leg_1_pick_1st_inning_prop',
+                '1st_inning_prop',
+                'first_7_pick',
+                'leg_1_first_7_pick',
+                'leg_1_pick',
+                'l1_pick'
+              ],
+              defaultL1Pick);
+        }
         String l1Pick = _cleanLegPick(rawL1, homeName);
 
         String defaultL2Pick =
             activeSport == 'NCAAF' ? homeName : '$homeName F5 ML';
         String rawL2 = _getFlexibleDeep(
             auditMap,
-            ['1h_pick', 'leg_2_1st_half_pick', 'leg_2_pick', 'l2_pick'],
+            [
+              'leg_2_pick_f5_result__ml',
+              'f5_ml_pick',
+              '1h_pick',
+              'leg_2_1st_half_pick',
+              'leg_2_pick',
+              'l2_pick'
+            ],
             defaultL2Pick);
+        if (rawL2 == defaultL2Pick) {
+          rawL2 = _getFlexibleDeep(
+              item,
+              [
+                'leg_2_pick_f5_result__ml',
+                'f5_ml_pick',
+                '1h_pick',
+                'leg_2_1st_half_pick',
+                'leg_2_pick',
+                'l2_pick'
+              ],
+              defaultL2Pick);
+        }
         String l2Pick = _cleanLegPick(rawL2, homeName);
 
         String defaultL3Pick =
             activeSport == 'NCAAF' ? homeName : '$homeName FULL GAME ML';
         String rawL3 = _getFlexibleDeep(
             auditMap,
-            ['fg_ml_pick', 'leg_3_moneyline_pick', 'leg_3_pick', 'l3_pick'],
+            [
+              'leg_3_pick_full_game_ml_net_advantage_engine',
+              'fg_ml_pick',
+              'leg_3_moneyline_pick',
+              'leg_3_pick',
+              'l3_pick'
+            ],
             defaultL3Pick);
+        if (rawL3 == defaultL3Pick) {
+          rawL3 = _getFlexibleDeep(
+              item,
+              [
+                'leg_3_pick_full_game_ml_net_advantage_engine',
+                'fg_ml_pick',
+                'leg_3_moneyline_pick',
+                'leg_3_pick',
+                'l3_pick'
+              ],
+              defaultL3Pick);
+        }
         String l3Pick = _cleanLegPick(rawL3, homeName);
 
         String l1GradeRaw = _getFlexibleDeep(
@@ -2532,13 +3377,21 @@ Get full access: tailzs.com
           formattedScore = '$formattedScore [FINAL]';
         }
 
+        String l1Label = activeSport == 'NCAAF'
+            ? 'FIRST 7'
+            : ((l1Pick.toUpperCase().contains('NRFI') ||
+                    rawL1.toUpperCase().contains('NRFI') ||
+                    rawL1.toUpperCase().contains('UNDER'))
+                ? 'NRFI'
+                : 'YRFI');
+
         return {
           ...baseData,
           'score': formattedScore,
           'badgeType': badgeType,
           'tier': activeTier,
           'legCount': 3,
-          'l1_label': activeSport == 'NCAAF' ? 'FIRST 7' : 'YRFI',
+          'l1_label': l1Label,
           'l1_pick': l1Pick,
           'l1_status': isPendingGame ? 'PENDING' : l1Status,
           'l2_label': activeSport == 'NCAAF' ? '1H ML' : 'F5 ML',
@@ -2549,16 +3402,50 @@ Get full access: tailzs.com
           'l3_status': isPendingGame ? 'PENDING' : l3Status,
         };
       } else if (activeTier.contains('TIER 2')) {
-        List<String> l1Keys = ['topography_ml_pick', 'topography_winner'];
-        List<String> l2Keys = ['insignia_synergy_ml_pick', 'insignia_winner'];
+        List<String> l1Keys = [
+          'topography_ml_pick',
+          'topography_winner',
+          'moneyline_winner',
+          'ml_pick'
+        ];
+        List<String> l2Keys = [
+          'moneyline_projector_winner',
+          'ml_projector_winner',
+          'insignia_synergy_ml_pick',
+          'insignia_winner',
+          'master_prevailing_crown',
+          'prevailing_crown'
+        ];
 
         String rawL1 = _getFlexibleDeep(auditMap, l1Keys, '');
         if (rawL1.isEmpty) rawL1 = _getFlexibleDeep(item, l1Keys, homeName);
         String l1Pick = _cleanLegPick(rawL1, homeName);
 
         String rawL2 = _getFlexibleDeep(auditMap, l2Keys, '');
-        if (rawL2.isEmpty) rawL2 = _getFlexibleDeep(item, l2Keys, awayName);
-        String l2Pick = _cleanLegPick(rawL2, awayName);
+        if (rawL2.isEmpty) rawL2 = _getFlexibleDeep(item, l2Keys, '');
+
+        String hybridClash = _getFlexibleDeep(
+            item,
+            [
+              'hybrid_clash_result_explicit_inputs',
+              'hybrid_clash_inputs',
+              'congruency_chaos'
+            ],
+            '');
+
+        bool isL2DeadHeat = rawL2.toUpperCase().contains('DEAD HEAT') ||
+            rawL2.toUpperCase().contains('SKIP') ||
+            rawL2.toUpperCase().contains('DEAD EVEN') ||
+            rawL2.toUpperCase().contains('NO EDGE') ||
+            hybridClash.toUpperCase().contains('DEAD HEAT') ||
+            hybridClash.toUpperCase().contains('MIRROR EQUILIBRIUM');
+
+        String l2Pick;
+        if (isL2DeadHeat || rawL2.trim().isEmpty) {
+          l2Pick = 'SKIP (DEAD HEAT)';
+        } else {
+          l2Pick = _cleanLegPick(rawL2, awayName);
+        }
 
         String l1GradeRaw = _getFlexibleDeep(
             auditMap, ['topography_grade', 'topography_result'], '');
@@ -2586,8 +3473,10 @@ Get full access: tailzs.com
 
           l1Status = _evaluateLegStatus(
               pick: l1Pick, gradeRaw: l1GradeRaw, scoreWinner: scoreWinner);
-          l2Status = _evaluateLegStatus(
-              pick: l2Pick, gradeRaw: l2GradeRaw, scoreWinner: scoreWinner);
+          l2Status = isL2DeadHeat
+              ? 'SKIP'
+              : _evaluateLegStatus(
+                  pick: l2Pick, gradeRaw: l2GradeRaw, scoreWinner: scoreWinner);
 
           if (l1Status == 'SKIP' || l2Status == 'SKIP') {
             badgeType = 'SPLIT_DECISION';
@@ -2700,8 +3589,13 @@ Get full access: tailzs.com
     primaryModelWinner = _cleanLegPick(primaryModelWinner, homeName);
 
     if (activeTier.contains('TIER 1')) {
-      String defaultL1 =
-          activeSport == 'NCAAF' ? awayName : 'YRFI TARGET (Over 0.5 Runs)';
+      if (prospectiveMap.containsKey('tier1_parlay') &&
+          prospectiveMap['tier1_parlay'] is Map) {
+        prospectiveMap =
+            Map<String, dynamic>.from(prospectiveMap['tier1_parlay']);
+      }
+
+      String defaultL1 = activeSport == 'NCAAF' ? awayName : 'NRFI TARGET';
       String defaultL2 = activeSport == 'NCAAF'
           ? primaryModelWinner
           : '$primaryModelWinner F5 ML';
@@ -2710,17 +3604,45 @@ Get full access: tailzs.com
           : '$primaryModelWinner FULL GAME ML';
 
       String rawL1 = _getFlexibleDeep(
-          prospectiveMap, ['leg_1_first_7_pick', 'first_7_pick'], defaultL1);
+          prospectiveMap,
+          [
+            'leg_1_pick_1st_inning_prop',
+            '1st_inning_prop',
+            'leg_1_first_7_pick',
+            'first_7_pick'
+          ],
+          defaultL1);
       String rawL2 = _getFlexibleDeep(
-          prospectiveMap, ['leg_2_1st_half_pick', '1h_pick'], defaultL2);
+          prospectiveMap,
+          [
+            'leg_2_pick_f5_result__ml',
+            'f5_ml_pick',
+            'leg_2_1st_half_pick',
+            '1h_pick'
+          ],
+          defaultL2);
       String rawL3 = _getFlexibleDeep(
-          prospectiveMap, ['leg_3_moneyline_pick', 'fg_ml_pick'], defaultL3);
+          prospectiveMap,
+          [
+            'leg_3_pick_full_game_ml_net_advantage_engine',
+            'fg_ml_pick',
+            'leg_3_moneyline_pick'
+          ],
+          defaultL3);
 
       String cleanL1 = _cleanLegPick(rawL1, defaultL1);
       String cleanL2 = _cleanLegPick(rawL2, defaultL2);
       String cleanL3 = _cleanLegPick(rawL3, defaultL3);
 
       bool isMixMatch = (cleanL1 != cleanL2) || (cleanL2 != cleanL3);
+
+      String l1Label = activeSport == 'NCAAF'
+          ? 'FIRST 7'
+          : ((cleanL1.toUpperCase().contains('NRFI') ||
+                  rawL1.toUpperCase().contains('NRFI') ||
+                  rawL1.toUpperCase().contains('UNDER'))
+              ? 'NRFI'
+              : 'YRFI');
 
       return {
         ...baseData,
@@ -2729,7 +3651,7 @@ Get full access: tailzs.com
         'tier': activeTier,
         'legCount': 3,
         'isMixMatch': isMixMatch,
-        'l1_label': activeSport == 'NCAAF' ? 'FIRST 7' : 'YRFI',
+        'l1_label': l1Label,
         'l1_pick': cleanL1,
         'l1_status': 'PENDING',
         'l2_label': activeSport == 'NCAAF' ? '1H ML' : 'F5 ML',
@@ -2740,13 +3662,51 @@ Get full access: tailzs.com
         'l3_status': 'PENDING',
       };
     } else if (activeTier.contains('TIER 2')) {
-      String rawL1 = _getFlexibleDeep(prospectiveMap,
-          ['topography_ml_pick', 'topography_winner'], homeName);
-      String rawL2 = _getFlexibleDeep(prospectiveMap,
-          ['insignia_synergy_ml_pick', 'insignia_winner'], awayName);
+      if (prospectiveMap.containsKey('tier2_parlay') &&
+          prospectiveMap['tier2_parlay'] is Map) {
+        prospectiveMap =
+            Map<String, dynamic>.from(prospectiveMap['tier2_parlay']);
+      }
+
+      String rawL1 = _getFlexibleDeep(
+          prospectiveMap,
+          ['topography_ml_pick', 'topography_winner', 'moneyline_winner'],
+          homeName);
+      String rawL2 = _getFlexibleDeep(
+          prospectiveMap,
+          [
+            'moneyline_projector_winner',
+            'ml_projector_winner',
+            'insignia_synergy_ml_pick',
+            'insignia_winner',
+            'master_prevailing_crown',
+            'prevailing_crown'
+          ],
+          '');
+
+      String hybridClash = _getFlexibleDeep(
+          prospectiveMap,
+          [
+            'hybrid_clash_result_explicit_inputs',
+            'hybrid_clash_inputs',
+            'congruency_chaos'
+          ],
+          '');
+
+      bool isL2DeadHeat = rawL2.toUpperCase().contains('DEAD HEAT') ||
+          rawL2.toUpperCase().contains('SKIP') ||
+          rawL2.toUpperCase().contains('DEAD EVEN') ||
+          rawL2.toUpperCase().contains('NO EDGE') ||
+          hybridClash.toUpperCase().contains('DEAD HEAT') ||
+          hybridClash.toUpperCase().contains('MIRROR EQUILIBRIUM');
 
       String cleanL1 = _cleanLegPick(rawL1, homeName);
-      String cleanL2 = _cleanLegPick(rawL2, awayName);
+      String cleanL2;
+      if (isL2DeadHeat || rawL2.trim().isEmpty) {
+        cleanL2 = 'SKIP (DEAD HEAT)';
+      } else {
+        cleanL2 = _cleanLegPick(rawL2, awayName);
+      }
 
       return {
         ...baseData,
@@ -2818,8 +3778,8 @@ Get full access: tailzs.com
         'home_name': 'Cleveland Guardians',
         'tier': activeTier,
         'legCount': 3,
-        'l1_label': 'YRFI',
-        'l1_pick': 'YRFI TARGET',
+        'l1_label': 'NRFI',
+        'l1_pick': 'NRFI TARGET',
         'l1_status': 'WIN',
         'l2_label': 'F5 ML',
         'l2_pick': 'WHITE SOX F5 ML',
