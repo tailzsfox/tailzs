@@ -11,8 +11,11 @@ import 'package:flutter/material.dart' hide RepeatMode;
 
 import 'package:flutter/services.dart';
 import 'dart:ui';
+import 'dart:math' as math;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class TailzsLoginScreen extends StatefulWidget {
   const TailzsLoginScreen({
@@ -92,6 +95,9 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
     try {
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser != null) {
+        // Sync RevenueCat with the authenticated user ID on auto-login
+        await Purchases.logIn(currentUser.uid);
+
         bool isSubbed = false;
 
         final userEmail = currentUser.email?.toLowerCase() ?? '';
@@ -191,10 +197,45 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
     HapticFeedback.mediumImpact();
 
     try {
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: email,
-        password: password,
-      );
+      final userCredential = await FirebaseAuth.instance
+          .signInWithEmailAndPassword(email: email, password: password);
+
+      final user = userCredential.user;
+      if (user != null) {
+        // 1. Bind the Firebase user UID to RevenueCat
+        await Purchases.logIn(user.uid);
+
+        // 2. Enforce 2-Device Limit & Evict Oldest
+        final prefs = await SharedPreferences.getInstance();
+        String? deviceId = prefs.getString('tailzs_device_id');
+        if (deviceId == null) {
+          deviceId =
+              '${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(999999)}';
+          await prefs.setString('tailzs_device_id', deviceId);
+        }
+
+        final userRef =
+            FirebaseFirestore.instance.collection('users').doc(user.uid);
+        final doc = await userRef.get();
+
+        List<String> activeDevices = [];
+        if (doc.exists &&
+            doc.data() != null &&
+            doc.data()!.containsKey('active_devices')) {
+          activeDevices = List<String>.from(doc.data()!['active_devices']);
+        }
+
+        if (!activeDevices.contains(deviceId)) {
+          if (activeDevices.length >= 2) {
+            activeDevices.removeAt(0); // Evict the oldest device
+          }
+          activeDevices.add(deviceId);
+          await userRef.set({
+            'active_devices': activeDevices,
+            'last_login': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

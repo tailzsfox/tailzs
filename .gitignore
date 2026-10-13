@@ -1,0 +1,17 @@
+# Keystores & Signing Keys
+key.properties
+*.jks
+*.keystore
+*.pem
+
+# Python scripts & caches
+*.py
+__pycache__/
+
+# Flutter & Dart build artifacts
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+build/
+*.DS_Store

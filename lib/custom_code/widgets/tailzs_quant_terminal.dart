@@ -17,6 +17,8 @@ import 'package:purchases_flutter/purchases_flutter.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 import 'package:open_filex/open_filex.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class TailzsQuantTerminal extends StatefulWidget {
   const TailzsQuantTerminal({
@@ -70,6 +72,49 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   void initState() {
     super.initState();
     _initRevenueCat();
+    _listenForSessionRevocation();
+  }
+
+  void _listenForSessionRevocation() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final deviceId = prefs.getString('tailzs_device_id');
+    if (deviceId == null) return;
+
+    FirebaseFirestore.instance
+        .collection('users')
+        .doc(user.uid)
+        .snapshots()
+        .listen((snapshot) async {
+      if (!snapshot.exists) return;
+
+      final data = snapshot.data();
+      if (data != null && data.containsKey('active_devices')) {
+        final activeDevices = List<String>.from(data['active_devices'] ?? []);
+
+        // If this device ID was evicted by a 3rd login:
+        if (!activeDevices.contains(deviceId)) {
+          await FirebaseAuth.instance.signOut();
+          try {
+            await Purchases.logOut();
+          } catch (_) {}
+
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                    'Session Expired: Account in use on other devices. Securely logged out.'),
+                backgroundColor: Color(0xFFFF3366),
+                duration: Duration(seconds: 5),
+              ),
+            );
+            _navigateToLoginScreen(context);
+          }
+        }
+      }
+    });
   }
 
   // Navigation Engine to return to TerminalPage (Login Screen)
@@ -352,8 +397,16 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       Offerings offerings = await Purchases.getOfferings();
       Package? packageToBuy;
 
-      final String targetProductId =
-          (packageType == 'annual') ? 'tailzs_8999_1y' : 'tailzs_999_1m';
+      // Platform-Aware Target SKU Fallbacks
+      final String targetProductId;
+      if (Platform.isIOS) {
+        targetProductId =
+            (packageType == 'annual') ? 'tailzs_8999_1y' : 'tailzs_999_1m';
+      } else {
+        targetProductId = (packageType == 'annual')
+            ? 'tailzs_premium_annual:yearly-plan'
+            : 'tailzs_premium_monthly:monthly-plan';
+      }
 
       // 1. Search current offering standard slots
       if (offerings.current != null) {
@@ -394,7 +447,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                  'Package "$packageType" ($targetProductId) not found. Check RevenueCat Offerings.'),
+                  'Package "$packageType" not found. Check RevenueCat Offerings.'),
               backgroundColor: const Color(0xFFFF3366),
               duration: const Duration(seconds: 4),
             ),
@@ -416,7 +469,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
       _updateSubFromCustomerInfo(customerInfo);
 
-      // Dismiss modal only upon verified completion
       if (modalContext != null && modalContext.mounted) {
         Navigator.pop(modalContext);
       }
@@ -946,6 +998,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     return '';
   }
 
+  // Apple Guideline 5.1.1: Complete Permanent Account & Data Deletion
   void _showDeleteAccountDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -969,8 +1022,8 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
           ),
           content: const Text(
             'Are you sure you want to delete your Tailzs account?\n\n'
-            'This action is irreversible and will immediately revoke access to '
-            'all active subscriptions and saved signals.',
+            'This action is permanent and irreversible. All profile data, stored records, '
+            'and active access tokens will be erased from our servers immediately.',
             style:
                 TextStyle(color: Color(0xFF8A99A6), fontSize: 11, height: 1.4),
           ),
@@ -981,14 +1034,53 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                   style: TextStyle(color: Color(0xFF8A99A6), fontSize: 11)),
             ),
             ElevatedButton(
-              onPressed: () {
+              onPressed: () async {
                 Navigator.pop(dialogContext);
+
                 if (context.mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-                    content: Text('Account deletion request initiated.'),
-                    backgroundColor: Color(0xFFFF3366),
-                    duration: Duration(seconds: 3),
+                    content: Text('Permanently deleting account data...'),
+                    backgroundColor: Color(0xFFFF5E00),
                   ));
+                }
+
+                try {
+                  final user = FirebaseAuth.instance.currentUser;
+                  if (user != null) {
+                    // 1. Delete Firestore user record
+                    await FirebaseFirestore.instance
+                        .collection('users')
+                        .doc(user.uid)
+                        .delete();
+
+                    // 2. Sign out RevenueCat session
+                    await Purchases.logOut();
+
+                    // 3. Delete Firebase Authentication credentials
+                    await user.delete();
+
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                        content: Text('Account permanently deleted.'),
+                        backgroundColor: Color(0xFF00F5D4),
+                      ));
+                      _navigateToLoginScreen(context);
+                    }
+                  }
+                } on FirebaseAuthException catch (e) {
+                  if (e.code == 'requires-recent-login' && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                      content: Text(
+                          'Security check: Please log out and back in before deleting your account.'),
+                      backgroundColor: Color(0xFFFF3366),
+                      duration: Duration(seconds: 4),
+                    ));
+                  } else if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Error: ${e.message}'),
+                      backgroundColor: const Color(0xFFFF3366),
+                    ));
+                  }
                 }
               },
               style: ElevatedButton.styleFrom(
@@ -1183,26 +1275,10 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                     child: GestureDetector(
                       onTap: () async {
                         HapticFeedback.lightImpact();
-                        const url = 'https://www.tailzs.com/#terms';
-                        await Clipboard.setData(const ClipboardData(text: url));
-                        bool launched = false;
-                        try {
-                          launched = await launchURL(url);
-                        } catch (_) {
-                          launched = false;
-                        }
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(launched
-                                  ? 'Opening Terms of Service...'
-                                  : 'Terms of Service link copied!'),
-                              backgroundColor: const Color(0xFFFF5E00),
-                              duration: const Duration(seconds: 3),
-                            ),
-                          );
-                        }
+                        final url = Platform.isIOS
+                            ? 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/'
+                            : 'https://www.tailzs.com/#terms';
+                        await launchURL(url);
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1212,16 +1288,17 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                           border: Border.all(
                               color: const Color(0xFF8A99A6).withOpacity(0.4)),
                         ),
-                        child: const Row(
+                        child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Icon(Icons.gavel, color: Colors.white, size: 13),
-                            SizedBox(width: 5),
+                            const Icon(Icons.gavel,
+                                color: Colors.white, size: 13),
+                            const SizedBox(width: 5),
                             Text(
-                              'TERMS OF SERVICE',
-                              style: TextStyle(
+                              Platform.isIOS ? 'TERMS (EULA)' : 'TERMS OF USE',
+                              style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 9.5,
+                                fontSize: 9.0,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -1236,25 +1313,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                       onTap: () async {
                         HapticFeedback.lightImpact();
                         const url = 'https://www.tailzs.com/#privacy';
-                        await Clipboard.setData(const ClipboardData(text: url));
-                        bool launched = false;
-                        try {
-                          launched = await launchURL(url);
-                        } catch (_) {
-                          launched = false;
-                        }
-                        if (context.mounted) {
-                          Navigator.pop(context);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(launched
-                                  ? 'Opening Privacy Policy...'
-                                  : 'Privacy Policy link copied!'),
-                              backgroundColor: const Color(0xFF00F5D4),
-                              duration: const Duration(seconds: 3),
-                            ),
-                          );
-                        }
+                        await launchURL(url);
                       },
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -1274,7 +1333,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                               'PRIVACY POLICY',
                               style: TextStyle(
                                 color: Colors.white,
-                                fontSize: 9.5,
+                                fontSize: 9.0,
                                 fontWeight: FontWeight.bold,
                               ),
                             ),
@@ -1308,7 +1367,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
               ),
               const SizedBox(height: 14),
               const Center(
-                child: Text('Tailzs Quant Terminal v1.0.0+14',
+                child: Text('Tailzs Quant Terminal v1.0.0+16',
                     style: TextStyle(
                         color: Color(0xFF8A99A6),
                         fontSize: 9,
@@ -1321,6 +1380,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     );
   }
 
+  // Apple Guidelines 3.1.1 & 3.1.2: Compliant In-App Paywall Modal
   void _showPaywallModal(BuildContext context, String featureTitle) {
     showModalBottomSheet(
       context: context,
@@ -1423,23 +1483,86 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                                 letterSpacing: 0.5)),
                       ),
                     ),
-                  ],
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pop(modalContext);
-                      _navigateToLoginScreen(context);
-                    },
-                    child: const Text(
-                      'Already have an account? Sign In',
-                      style: TextStyle(
-                        color: Color(0xFF00F5D4),
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        decoration: TextDecoration.underline,
+                    const SizedBox(height: 16),
+
+                    // --- PLATFORM-AWARE COMPLIANCE BLOCK ---
+                    Text(
+                      'A \$9.99/month or \$89.99/year payment will be charged to your ${Platform.isIOS ? "Apple ID" : "Google Play"} account upon confirmation of purchase. Subscriptions automatically renew unless canceled at least 24 hours prior to the end of the current billing cycle. You can manage or cancel your subscription at any time in your device Account Settings.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          color: Color(0xFF8A99A6),
+                          fontSize: 9.5,
+                          height: 1.35),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            final url = Platform.isIOS
+                                ? 'https://www.apple.com/legal/internet-services/itunes/dev/stdeula/'
+                                : 'https://www.tailzs.com/#terms';
+                            launchURL(url);
+                          },
+                          child: Text(
+                              Platform.isIOS
+                                  ? 'Terms of Use (EULA)'
+                                  : 'Terms of Use',
+                              style: const TextStyle(
+                                  color: Color(0xFF00F5D4),
+                                  fontSize: 10,
+                                  decoration: TextDecoration.underline)),
+                        ),
+                        const Text('  •  ',
+                            style: TextStyle(
+                                color: Color(0xFF8A99A6), fontSize: 10)),
+                        GestureDetector(
+                          onTap: () {
+                            HapticFeedback.lightImpact();
+                            launchURL('https://www.tailzs.com/#privacy');
+                          },
+                          child: const Text('Privacy Policy',
+                              style: TextStyle(
+                                  color: Color(0xFF00F5D4),
+                                  fontSize: 10,
+                                  decoration: TextDecoration.underline)),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    TextButton(
+                      onPressed: () async {
+                        HapticFeedback.mediumImpact();
+                        Navigator.pop(modalContext);
+                        await _restorePurchases();
+                      },
+                      child: const Text('RESTORE PURCHASES',
+                          style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              decoration: TextDecoration.underline)),
+                    ),
+                    // ------------------------------------------------
+
+                    TextButton(
+                      onPressed: () {
+                        Navigator.pop(modalContext);
+                        _navigateToLoginScreen(context);
+                      },
+                      child: const Text(
+                        'Already have an account? Sign In',
+                        style: TextStyle(
+                          color: Color(0xFF00F5D4),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          decoration: TextDecoration.underline,
+                        ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             );
