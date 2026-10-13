@@ -9,7 +9,6 @@ import 'package:flutter/material.dart' hide RepeatMode;
 // Begin custom widget code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
-import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'dart:io' show Platform, File, Directory;
@@ -57,6 +56,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
   // RevenueCat Active State
   bool _rcIsSubscribed = false;
+  bool _isPurchasing = false;
 
   // Local In-Memory Cache
   final Map<String, List<Map<String, dynamic>>> _gamesCache = {};
@@ -340,32 +340,128 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     }
   }
 
-  Future<void> _makePurchase(String packageType) async {
+  Future<bool> _makePurchase(BuildContext context, String packageType,
+      {BuildContext? modalContext}) async {
+    if (_isPurchasing) return false;
+
+    setState(() {
+      _isPurchasing = true;
+    });
+
     try {
       Offerings offerings = await Purchases.getOfferings();
+      Package? packageToBuy;
+
+      final String targetProductId =
+          (packageType == 'annual') ? 'tailzs_8999_1y' : 'tailzs_999_1m';
+
+      // 1. Search current offering standard slots
       if (offerings.current != null) {
-        Package? packageToBuy;
         if (packageType == 'annual') {
           packageToBuy = offerings.current!.annual;
         } else {
           packageToBuy = offerings.current!.monthly;
         }
 
-        if (packageToBuy != null) {
-          PurchaseResult result = await Purchases.purchasePackage(packageToBuy);
-          _updateSubFromCustomerInfo(result.customerInfo);
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('Welcome to Tailzs Premium! All Access Unlocked.'),
-              backgroundColor: Color(0xFF00F5D4),
-              duration: Duration(seconds: 3),
-            ));
+        // Search by Product ID or Package Identifier within current offering
+        if (packageToBuy == null) {
+          for (var pkg in offerings.current!.availablePackages) {
+            if (pkg.storeProduct.identifier == targetProductId ||
+                pkg.identifier.toLowerCase().contains(packageType)) {
+              packageToBuy = pkg;
+              break;
+            }
           }
         }
       }
+
+      // 2. Global fallback across all offerings
+      if (packageToBuy == null && offerings.all.isNotEmpty) {
+        for (var offering in offerings.all.values) {
+          for (var pkg in offering.availablePackages) {
+            if (pkg.storeProduct.identifier == targetProductId ||
+                pkg.identifier.toLowerCase().contains(packageType)) {
+              packageToBuy = pkg;
+              break;
+            }
+          }
+          if (packageToBuy != null) break;
+        }
+      }
+
+      if (packageToBuy == null) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                  'Package "$packageType" ($targetProductId) not found. Check RevenueCat Offerings.'),
+              backgroundColor: const Color(0xFFFF3366),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return false;
+      }
+
+      // 3. Initiate native StoreKit / Google Play Billing sheet
+      final dynamic purchaseResult =
+          await Purchases.purchasePackage(packageToBuy);
+
+      CustomerInfo customerInfo;
+      if (purchaseResult is CustomerInfo) {
+        customerInfo = purchaseResult;
+      } else {
+        customerInfo = purchaseResult.customerInfo;
+      }
+
+      _updateSubFromCustomerInfo(customerInfo);
+
+      // Dismiss modal only upon verified completion
+      if (modalContext != null && modalContext.mounted) {
+        Navigator.pop(modalContext);
+      }
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('🎉 Welcome to Tailzs Premium! All Access Unlocked.'),
+            backgroundColor: Color(0xFF00F5D4),
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return true;
+    } on PlatformException catch (e) {
+      var errorCode = PurchasesErrorHelper.getErrorCode(e);
+      if (errorCode != PurchasesErrorCode.purchaseCancelledError) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Purchase Notice: ${e.message ?? e.code}'),
+              backgroundColor: const Color(0xFFFF3366),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+      }
+      return false;
     } catch (e) {
-      debugPrint('Purchase error or cancelled: $e');
+      debugPrint('Purchase error: $e');
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Store transaction error: $e'),
+            backgroundColor: const Color(0xFFFF3366),
+          ),
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isPurchasing = false;
+        });
+      }
     }
   }
 
@@ -500,8 +596,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   }
 
   String _formatVectorsWithTeams(String rawVector, String away, String home) {
-    if (rawVector.trim().isEmpty)
+    if (rawVector.trim().isEmpty) {
       return '$away: 🧊 SLUMPING | $home: 🔥 SURGING';
+    }
     String formatted = rawVector;
     formatted =
         formatted.replaceAll(RegExp(r'A:\s*', caseSensitive: false), '$away: ');
@@ -611,8 +708,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
     if ((q.contains('star') || q.contains('pin')) &&
         pinnedGameKeys.contains(
-            _getCanonicalMatchupKey(game['matchup']?.toString() ?? '')))
+            _getCanonicalMatchupKey(game['matchup']?.toString() ?? ''))) {
       return true;
+    }
 
     return false;
   }
@@ -708,8 +806,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     if (upper.contains('PHANTOM')) return '👻 $val';
     if (upper.contains('CYCLONE') || upper.contains('SWARM')) return '🌀 $val';
     if (upper.contains('ANCHOR')) return '⚓ $val';
-    if (upper.contains('MORTAR') || upper.contains('BOMBARDMENT'))
+    if (upper.contains('MORTAR') || upper.contains('BOMBARDMENT')) {
       return '💣 $val';
+    }
     if (upper.contains('VIPER') || upper.contains('SNAKE')) return '🐍 $val';
     if (upper.contains('TITAN') ||
         upper.contains('SHIELD') ||
@@ -778,12 +877,15 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
   String _formatTrench(String val) {
     String upper = val.toUpperCase();
-    if (upper.contains('IMPENETRABLE') || upper.contains('MONSTER'))
+    if (upper.contains('IMPENETRABLE') || upper.contains('MONSTER')) {
       return '🛡️ $val';
-    if (upper.contains('SUFFOCATION') || upper.contains('DISRUPTIVE'))
+    }
+    if (upper.contains('SUFFOCATION') || upper.contains('DISRUPTIVE')) {
       return '⚡ $val';
-    if (upper.contains('LIABILITY') || upper.contains('POROUS'))
+    }
+    if (upper.contains('LIABILITY') || upper.contains('POROUS')) {
       return '❄️ $val';
+    }
     return '秤️ $val';
   }
 
@@ -792,8 +894,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     if (upper.contains('DUAL-THREAT')) return '⚡ $val';
     if (upper.contains('MOBILITY')) return '🏃 $val';
     if (upper.contains('POCKET')) return '🎯 $val';
-    if (upper.contains('CONTAINMENT') || upper.contains('LOCKDOWN'))
+    if (upper.contains('CONTAINMENT') || upper.contains('LOCKDOWN')) {
       return '🔒 $val';
+    }
     return val;
   }
 
@@ -1205,7 +1308,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
               ),
               const SizedBox(height: 14),
               const Center(
-                child: Text('Tailzs Quant Terminal v1.0.0+13',
+                child: Text('Tailzs Quant Terminal v1.0.0+14',
                     style: TextStyle(
                         color: Color(0xFF8A99A6),
                         fontSize: 9,
@@ -1221,99 +1324,126 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   void _showPaywallModal(BuildContext context, String featureTitle) {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       backgroundColor: const Color(0xFF182226),
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const Icon(Icons.lock, color: Color(0xFFFF5E00), size: 36),
-              const SizedBox(height: 12),
-              Text(
-                featureTitle.toUpperCase(),
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w900),
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Unlock ALL ACCESS to real-time prospective signals, '
-                'deep dive equations, and full quantitative dossiers '
-                'across ALL sports.',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                    color: Color(0xFF8A99A6), fontSize: 11, height: 1.4),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: () async {
-                    HapticFeedback.mediumImpact();
-                    Navigator.pop(context);
-                    await _makePurchase('annual');
-                  },
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFFF5E00),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+      builder: (modalContext) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return Container(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.lock, color: Color(0xFFFF5E00), size: 36),
+                  const SizedBox(height: 12),
+                  Text(
+                    featureTitle.toUpperCase(),
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w900),
                   ),
-                  child: const Text('ANNUAL ALL ACCESS (\$89.99/YR • SAVE 25%)',
+                  const SizedBox(height: 8),
+                  const Text(
+                    'Unlock ALL ACCESS to real-time prospective signals, '
+                    'deep dive equations, and full quantitative dossiers '
+                    'across ALL sports.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                        color: Color(0xFF8A99A6), fontSize: 11, height: 1.4),
+                  ),
+                  const SizedBox(height: 20),
+                  if (_isPurchasing)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24.0),
+                      child: Column(
+                        children: [
+                          CircularProgressIndicator(color: Color(0xFF00F5D4)),
+                          SizedBox(height: 12),
+                          Text('Contacting Store...',
+                              style: TextStyle(
+                                  color: Color(0xFF8A99A6), fontSize: 11)),
+                        ],
+                      ),
+                    )
+                  else ...[
+                    // ANNUAL OPTION ($89.99)
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          HapticFeedback.mediumImpact();
+                          setModalState(() {});
+                          await _makePurchase(context, 'annual',
+                              modalContext: modalContext);
+                          if (mounted) setModalState(() {});
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFFF5E00),
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: const Text(
+                            'ANNUAL ALL ACCESS (\$89.99/YR • SAVE 25%)',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5)),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    // MONTHLY OPTION ($9.99)
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        onPressed: () async {
+                          HapticFeedback.mediumImpact();
+                          setModalState(() {});
+                          await _makePurchase(context, 'monthly',
+                              modalContext: modalContext);
+                          if (mounted) setModalState(() {});
+                        },
+                        style: OutlinedButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          side: const BorderSide(
+                              color: Color(0xFF00F5D4), width: 1.5),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                        ),
+                        child: const Text('MONTHLY ALL ACCESS (\$9.99/MO)',
+                            style: TextStyle(
+                                color: Color(0xFF00F5D4),
+                                fontSize: 11,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5)),
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  TextButton(
+                    onPressed: () {
+                      Navigator.pop(modalContext);
+                      _navigateToLoginScreen(context);
+                    },
+                    child: const Text(
+                      'Already have an account? Sign In',
                       style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.5)),
-                ),
-              ),
-              const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton(
-                  onPressed: () async {
-                    HapticFeedback.mediumImpact();
-                    Navigator.pop(context);
-                    await _makePurchase('monthly');
-                  },
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(vertical: 12),
-                    side:
-                        const BorderSide(color: Color(0xFF00F5D4), width: 1.5),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10)),
+                        color: Color(0xFF00F5D4),
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
                   ),
-                  child: const Text('MONTHLY ALL ACCESS (\$9.99/MO)',
-                      style: TextStyle(
-                          color: Color(0xFF00F5D4),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900,
-                          letterSpacing: 0.5)),
-                ),
+                ],
               ),
-              const SizedBox(height: 12),
-              TextButton(
-                onPressed: () {
-                  Navigator.pop(context);
-                  _navigateToLoginScreen(context);
-                },
-                child: const Text(
-                  'Already have an account? Sign In',
-                  style: TextStyle(
-                    color: Color(0xFF00F5D4),
-                    fontSize: 11,
-                    fontWeight: FontWeight.bold,
-                    decoration: TextDecoration.underline,
-                  ),
-                ),
-              ),
-            ],
-          ),
+            );
+          },
         );
       },
     );
@@ -2785,18 +2915,20 @@ Get full access: tailzs.com
     }
 
     String displayLabel = clean;
-    if (clean.contains('PENDING') || clean.contains('⏳'))
+    if (clean.contains('PENDING') || clean.contains('⏳')) {
       displayLabel = '⏳ PENDING';
-    else if (clean.contains('WIN') || clean.contains('🟢'))
+    } else if (clean.contains('WIN') || clean.contains('🟢')) {
       displayLabel = 'WIN';
-    else if (clean.contains('LOSS') || clean.contains('🔴'))
+    } else if (clean.contains('LOSS') || clean.contains('🔴')) {
       displayLabel = 'LOSS';
-    else if (clean.contains('SKIP') ||
+    } else if (clean.contains('SKIP') ||
         clean.contains('DEAD EVEN') ||
         clean.contains('DEAD HEAT') ||
-        clean.contains('⏸️'))
+        clean.contains('⏸️')) {
       displayLabel = '⏸️ SKIP';
-    else if (clean.contains('PUSH')) displayLabel = 'PUSH';
+    } else if (clean.contains('PUSH')) {
+      displayLabel = 'PUSH';
+    }
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -2812,12 +2944,13 @@ Get full access: tailzs.com
     final clean =
         matchupStr.toLowerCase().replaceAll(RegExp(r'[^a-z0-9\s@]'), ' ');
     List<String> parts = [];
-    if (clean.contains('@'))
+    if (clean.contains('@')) {
       parts = clean.split('@');
-    else if (clean.contains(' vs '))
+    } else if (clean.contains(' vs ')) {
       parts = clean.split(' vs ');
-    else
+    } else {
       parts = [clean];
+    }
 
     List<String> mascots = [];
     for (var part in parts) {
@@ -2869,8 +3002,9 @@ Get full access: tailzs.com
       }
     }
 
-    if (targetDoc == null)
+    if (targetDoc == null) {
       return _getMockDossiers(activeTier, activeSport, activeMode);
+    }
 
     final List<Map<String, dynamic>> parsedGames = [];
     final Set<String> seenCanonicalKeys = {};
