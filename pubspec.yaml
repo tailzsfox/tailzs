@@ -189,5 +189,3 @@ flutter:
   # see https://flutter.dev/custom-fonts/#from-packages
 
 
-  adaptive_icon_background: '#182226'
-  adaptive_icon_foreground: 'assets/images/appleicon.png'
