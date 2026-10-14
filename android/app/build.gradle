@@ -64,22 +64,13 @@ android {
     }
 
    signingConfigs {
-        release {
-            if (System.getenv()["CM_KEYSTORE"]) {
-                storeFile file(System.getenv()["CM_KEYSTORE"])
-                storePassword System.getenv()["CM_KEYSTORE_PASSWORD"]
-                keyAlias System.getenv()["CM_KEY_ALIAS"]
-                keyPassword System.getenv()["CM_KEY_PASSWORD"]
-            } else if (keystoreProperties['storeFile'] != null && file(keystoreProperties['storeFile']).exists()) {
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
-                storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
-            } else {
-                throw new GradleException('CRITICAL: Release build halted. Production keystore not detected in Codemagic or key.properties!')
-            }
-        }
-    }
+       release {
+           keyAlias keystoreProperties['keyAlias']
+           keyPassword keystoreProperties['keyPassword']
+           storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+           storePassword keystoreProperties['storePassword']
+       }
+   }
 
     buildTypes {
         release {

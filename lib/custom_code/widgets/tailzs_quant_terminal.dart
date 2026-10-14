@@ -9,6 +9,7 @@ import 'package:flutter/material.dart' hide RepeatMode;
 // Begin custom widget code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'dart:ui';
 import 'dart:io' show Platform, File, Directory;
@@ -60,6 +61,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   bool _rcIsSubscribed = false;
   bool _isPurchasing = false;
 
+  // Subscriptions & Auth Subscriptions
+  StreamSubscription<User?>? _authSubscription;
+
   // Local In-Memory Cache
   final Map<String, List<Map<String, dynamic>>> _gamesCache = {};
 
@@ -72,7 +76,30 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   void initState() {
     super.initState();
     _initRevenueCat();
+    _listenForAuthAndRevenueCatSync();
     _listenForSessionRevocation();
+  }
+
+  @override
+  void dispose() {
+    _authSubscription?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _listenForAuthAndRevenueCatSync() {
+    _authSubscription =
+        FirebaseAuth.instance.authStateChanges().listen((user) async {
+      if (user != null) {
+        try {
+          await Purchases.logIn(user.uid);
+          final CustomerInfo info = await Purchases.getCustomerInfo();
+          _updateSubFromCustomerInfo(info);
+        } catch (e) {
+          debugPrint('Auth change RevenueCat sync error: $e');
+        }
+      }
+    });
   }
 
   void _listenForSessionRevocation() async {
@@ -94,7 +121,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       if (data != null && data.containsKey('active_devices')) {
         final activeDevices = List<String>.from(data['active_devices'] ?? []);
 
-        // If this device ID was evicted by a 3rd login:
         if (!activeDevices.contains(deviceId)) {
           await FirebaseAuth.instance.signOut();
           try {
@@ -117,7 +143,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     });
   }
 
-  // Navigation Engine to return to TerminalPage (Login Screen)
   void _navigateToLoginScreen(BuildContext context) {
     final List<String> pageNames = [
       'TerminalPage',
@@ -147,7 +172,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     }
   }
 
-  // Smart Device-First Caching Handler
   Future<void> _accessDossierSmartCache({
     required BuildContext context,
     required String pdfUrl,
@@ -178,7 +202,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       final String filePath = '${appDir.path}/$cleanDocKey.pdf';
       final File localFile = File(filePath);
 
-      // 1. DEVICE-FIRST CACHE CHECK
       if (await localFile.exists() && (await localFile.length()) > 1024) {
         OpenResult openRes = await OpenFilex.open(localFile.path);
         if (openRes.type != ResultType.done) {
@@ -196,7 +219,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
         return;
       }
 
-      // 2. FIRST-TIME DOWNLOAD TO LOCAL EDGE CACHE
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -236,7 +258,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     }
   }
 
-  // Dossier Access Options Modal
   void _showDossierOptionsModal({
     required BuildContext context,
     required String pdfUrl,
@@ -356,6 +377,11 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       }
       await Purchases.configure(configuration);
 
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null) {
+        await Purchases.logIn(currentUser.uid);
+      }
+
       CustomerInfo info = await Purchases.getCustomerInfo();
       _updateSubFromCustomerInfo(info);
 
@@ -397,7 +423,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       Offerings offerings = await Purchases.getOfferings();
       Package? packageToBuy;
 
-      // Platform-Aware Target SKU Fallbacks
       final String targetProductId;
       if (Platform.isIOS) {
         targetProductId =
@@ -408,15 +433,11 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
             : 'tailzs_premium_monthly:monthly-plan';
       }
 
-      // 1. Search current offering standard slots
       if (offerings.current != null) {
-        if (packageType == 'annual') {
-          packageToBuy = offerings.current!.annual;
-        } else {
-          packageToBuy = offerings.current!.monthly;
-        }
+        packageToBuy = (packageType == 'annual')
+            ? offerings.current!.annual
+            : offerings.current!.monthly;
 
-        // Search by Product ID or Package Identifier within current offering
         if (packageToBuy == null) {
           for (var pkg in offerings.current!.availablePackages) {
             if (pkg.storeProduct.identifier == targetProductId ||
@@ -428,7 +449,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
         }
       }
 
-      // 2. Global fallback across all offerings
       if (packageToBuy == null && offerings.all.isNotEmpty) {
         for (var offering in offerings.all.values) {
           for (var pkg in offering.availablePackages) {
@@ -446,8 +466,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
         if (context.mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(
-                  'Package "$packageType" not found. Check RevenueCat Offerings.'),
+              content: Text('Package "$packageType" not found in RevenueCat.'),
               backgroundColor: const Color(0xFFFF3366),
               duration: const Duration(seconds: 4),
             ),
@@ -456,18 +475,20 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
         return false;
       }
 
-      // 3. Initiate native StoreKit / Google Play Billing sheet
       final dynamic purchaseResult =
           await Purchases.purchasePackage(packageToBuy);
 
-      CustomerInfo customerInfo;
-      if (purchaseResult is CustomerInfo) {
-        customerInfo = purchaseResult;
-      } else {
-        customerInfo = purchaseResult.customerInfo;
-      }
+      CustomerInfo customerInfo = (purchaseResult is CustomerInfo)
+          ? purchaseResult
+          : purchaseResult.customerInfo;
 
       _updateSubFromCustomerInfo(customerInfo);
+
+      if (mounted) {
+        setState(() {
+          _rcIsSubscribed = true;
+        });
+      }
 
       if (modalContext != null && modalContext.mounted) {
         Navigator.pop(modalContext);
@@ -523,10 +544,18 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       _updateSubFromCustomerInfo(info);
 
       if (mounted) {
-        final bool isNowSubbed = _rcIsSubscribed || (widget.isSub ?? false);
+        final entitlement = info.entitlements.all['tailzs'];
+        final bool isNowSubbed =
+            (entitlement != null && entitlement.isActive) ||
+                info.entitlements.active.isNotEmpty;
+
+        setState(() {
+          _rcIsSubscribed = isNowSubbed;
+        });
+
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(isNowSubbed
-              ? 'Purchases restored! Active subscription found.'
+              ? '🎉 Purchases restored! Active subscription found.'
               : 'Restore completed. No active subscriptions found.'),
           backgroundColor:
               isNowSubbed ? const Color(0xFF00F5D4) : const Color(0xFFFF5E00),
@@ -998,7 +1027,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     return '';
   }
 
-  // Apple Guideline 5.1.1: Complete Permanent Account & Data Deletion
   void _showDeleteAccountDialog(BuildContext context) {
     showDialog(
       context: context,
@@ -1047,17 +1075,34 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                 try {
                   final user = FirebaseAuth.instance.currentUser;
                   if (user != null) {
-                    // 1. Delete Firestore user record
-                    await FirebaseFirestore.instance
-                        .collection('users')
-                        .doc(user.uid)
-                        .delete();
+                    final String uid = user.uid;
 
-                    // 2. Sign out RevenueCat session
-                    await Purchases.logOut();
+                    try {
+                      await FirebaseFirestore.instance
+                          .collection('users')
+                          .doc(uid)
+                          .delete();
+                    } catch (e) {
+                      debugPrint('Error deleting user Firestore doc: $e');
+                    }
 
-                    // 3. Delete Firebase Authentication credentials
+                    try {
+                      await Purchases.logOut();
+                    } catch (_) {}
+
+                    try {
+                      final prefs = await SharedPreferences.getInstance();
+                      await prefs.remove('tailzs_device_id');
+                    } catch (_) {}
+
                     await user.delete();
+                    await FirebaseAuth.instance.signOut();
+
+                    if (mounted) {
+                      setState(() {
+                        _rcIsSubscribed = false;
+                      });
+                    }
 
                     if (context.mounted) {
                       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -1078,6 +1123,13 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                   } else if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                       content: Text('Error: ${e.message}'),
+                      backgroundColor: const Color(0xFFFF3366),
+                    ));
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('Unexpected error: $e'),
                       backgroundColor: const Color(0xFFFF3366),
                     ));
                   }
@@ -1367,7 +1419,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
               ),
               const SizedBox(height: 14),
               const Center(
-                child: Text('Tailzs Quant Terminal v1.0.0+16',
+                child: Text('Tailzs Quant Terminal v1.0.0+17',
                     style: TextStyle(
                         color: Color(0xFF8A99A6),
                         fontSize: 9,
@@ -1380,7 +1432,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     );
   }
 
-  // Apple Guidelines 3.1.1 & 3.1.2: Compliant In-App Paywall Modal
   void _showPaywallModal(BuildContext context, String featureTitle) {
     showModalBottomSheet(
       context: context,
@@ -1430,7 +1481,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                       ),
                     )
                   else ...[
-                    // ANNUAL OPTION ($89.99)
                     SizedBox(
                       width: double.infinity,
                       child: ElevatedButton(
@@ -1457,7 +1507,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    // MONTHLY OPTION ($9.99)
                     SizedBox(
                       width: double.infinity,
                       child: OutlinedButton(
@@ -1484,8 +1533,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                       ),
                     ),
                     const SizedBox(height: 16),
-
-                    // --- PLATFORM-AWARE COMPLIANCE BLOCK ---
                     Text(
                       'A \$9.99/month or \$89.99/year payment will be charged to your ${Platform.isIOS ? "Apple ID" : "Google Play"} account upon confirmation of purchase. Subscriptions automatically renew unless canceled at least 24 hours prior to the end of the current billing cycle. You can manage or cancel your subscription at any time in your device Account Settings.',
                       textAlign: TextAlign.center,
@@ -1545,8 +1592,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                               fontWeight: FontWeight.bold,
                               decoration: TextDecoration.underline)),
                     ),
-                    // ------------------------------------------------
-
                     TextButton(
                       onPressed: () {
                         Navigator.pop(modalContext);
@@ -1672,84 +1717,109 @@ Get full access: tailzs.com
     );
   }
 
+  // --- STRICT MODE & DEDUPLICATED DOSSIER SYSTEM ---
+
+  bool _isDocMatchingMode(String docId, String mode) {
+    final lower = docId.toLowerCase();
+    final bool isAuditDoc = lower.contains('eod') ||
+        lower.contains('eow') ||
+        lower.contains('audit');
+    return (mode == 'AUDIT') ? isAuditDoc : !isAuditDoc;
+  }
+
+  String _cleanDossierDisplayLabel(String rawDocId, String sport, String mode) {
+    String clean = rawDocId.replaceAll('_', ' ').toUpperCase().trim();
+    clean = clean.replaceAll('DOSSIER', '').replaceAll('RECORD', '').trim();
+    if (clean.contains('MASTER')) {
+      clean = clean.replaceAll('MASTER', 'SLATE').trim();
+    }
+    return clean.isEmpty ? '$sport $mode SLATE' : clean;
+  }
+
   void _showWeekSelectorModal(BuildContext context) {
     if (widget.dossierDocs == null || widget.dossierDocs!.isEmpty) return;
 
     final String sportKey = selectedSport.toLowerCase();
-    List<Map<String, String>> weekDossiers = [];
-    Map<String, String>? latestDossier;
+    final List<String> candidateKeys = [
+      'pdf_url',
+      'dossier_pdf_url',
+      'dossier_url',
+      'pdf_link',
+      'pdf',
+      'url'
+    ];
 
+    Map<String, String>? latestDossier;
+    List<Map<String, String>> historicalDossiers = [];
+    final Set<String> registeredUrls = {};
+
+    // 1. Locate the authentic 'latest' doc for active Sport & Mode
     for (var record in widget.dossierDocs!) {
       final docId = record.reference.id.toLowerCase();
-      bool isMatch = false;
-
-      if (docId.contains(sportKey) && docId.contains('master')) {
-        if (docId.contains('latest')) {
-          isMatch = true;
-        } else if (selectedMode == 'AUDIT') {
-          isMatch = docId.contains('eod') ||
-              docId.contains('eow') ||
-              docId.contains('audit');
-        } else {
-          isMatch = !docId.contains('eod') &&
-              !docId.contains('eow') &&
-              !docId.contains('audit');
-        }
-      }
-
-      if (isMatch) {
-        final data = record.snapshotData;
-        final String rawUrl = _getFlexibleDeep(
-            data,
-            [
-              'pdf_url',
-              'dossier_pdf_url',
-              'dossier_url',
-              'pdf_link',
-              'pdf',
-              'url'
-            ],
-            '');
-        final sanitized = _sanitizeUrl(rawUrl);
-
-        if (sanitized.isNotEmpty) {
-          if (docId.contains('latest')) {
-            latestDossier = {
-              'label': '⚡ LATEST MASTER SLATE ($selectedSport $selectedMode)',
-              'url': sanitized,
-              'docId': docId,
-            };
-          } else {
-            String label =
-                record.reference.id.replaceAll('_', ' ').toUpperCase();
-            weekDossiers.add({
-              'label': label,
-              'url': sanitized,
-              'docId': docId,
-            });
-          }
+      if (docId.contains(sportKey) &&
+          docId.contains('master') &&
+          docId.contains('latest') &&
+          _isDocMatchingMode(docId, selectedMode)) {
+        final rawUrl = _getFlexibleDeep(record.snapshotData, candidateKeys, '');
+        final cleanUrl = _sanitizeUrl(rawUrl);
+        if (cleanUrl.isNotEmpty) {
+          latestDossier = {
+            'label': '⚡ LATEST MASTER SLATE ($selectedSport • $selectedMode)',
+            'url': cleanUrl,
+            'docId': docId,
+          };
+          registeredUrls.add(cleanUrl);
+          break;
         }
       }
     }
 
-    weekDossiers.sort((a, b) => (b['docId'] ?? '').compareTo(a['docId'] ?? ''));
+    // 2. Locate all historical / dated dossiers matching active Sport & Mode
+    for (var record in widget.dossierDocs!) {
+      final docId = record.reference.id.toLowerCase();
+      if (docId.contains(sportKey) &&
+          docId.contains('master') &&
+          !docId.contains('latest') &&
+          _isDocMatchingMode(docId, selectedMode)) {
+        final rawUrl = _getFlexibleDeep(record.snapshotData, candidateKeys, '');
+        final cleanUrl = _sanitizeUrl(rawUrl);
 
+        // Deduplicate: Never repeat a URL already owned by 'latest' or prior dates
+        if (cleanUrl.isNotEmpty && !registeredUrls.contains(cleanUrl)) {
+          registeredUrls.add(cleanUrl);
+          historicalDossiers.add({
+            'label': _cleanDossierDisplayLabel(
+                record.reference.id, selectedSport, selectedMode),
+            'url': cleanUrl,
+            'docId': docId,
+          });
+        }
+      }
+    }
+
+    // Sort historical dossiers descending by document ID (most recent dates first)
+    historicalDossiers
+        .sort((a, b) => (b['docId'] ?? '').compareTo(a['docId'] ?? ''));
+
+    // Construct the clean final list of exactly up to 4 options
+    List<Map<String, String>> finalModalList = [];
     if (latestDossier != null) {
-      weekDossiers.insert(0, latestDossier);
+      finalModalList.add(latestDossier);
+      finalModalList.addAll(historicalDossiers.take(3));
+    } else {
+      finalModalList.addAll(historicalDossiers.take(4));
     }
 
-    if (weekDossiers.isEmpty) {
+    if (finalModalList.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-              'No historical $selectedSport ($selectedMode) Master Dossiers found.'),
+              'No $selectedSport ($selectedMode) Master Dossiers found in system.'),
           backgroundColor: const Color(0xFFFF5E00),
         ),
       );
       return;
     }
-
-    final cappedDossiers = weekDossiers.take(4).toList();
 
     showModalBottomSheet(
       context: context,
@@ -1766,7 +1836,7 @@ Get full access: tailzs.com
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('🗓️ SELECT $selectedSport MASTER DOSSIER',
+                  Text('🗓️ SELECT $selectedSport ($selectedMode) MASTER SLATE',
                       style: const TextStyle(
                           color: Color(0xFF00F5D4),
                           fontSize: 11,
@@ -1778,7 +1848,7 @@ Get full access: tailzs.com
                 ],
               ),
               const SizedBox(height: 10),
-              ...cappedDossiers.map((item) => Padding(
+              ...finalModalList.map((item) => Padding(
                     padding: const EdgeInsets.only(bottom: 8.0),
                     child: ElevatedButton.icon(
                       onPressed: () async {
@@ -1830,42 +1900,34 @@ Get full access: tailzs.com
     if (widget.dossierDocs != null && widget.dossierDocs!.isNotEmpty) {
       final String sportKey = selectedSport.toLowerCase();
 
+      // Step 1: Search for explicit latest matching sport & active mode
       for (var record in widget.dossierDocs!) {
         final docId = record.reference.id.toLowerCase();
         if (docId.contains(sportKey) &&
             docId.contains('master') &&
-            docId.contains('latest')) {
-          final data = record.snapshotData;
-          final String rawUrl = _getFlexibleDeep(data, candidateKeys, '');
+            docId.contains('latest') &&
+            _isDocMatchingMode(docId, selectedMode)) {
+          final rawUrl =
+              _getFlexibleDeep(record.snapshotData, candidateKeys, '');
           final sanitized = _sanitizeUrl(rawUrl);
           if (sanitized.isNotEmpty) return sanitized;
         }
       }
 
-      for (var record in widget.dossierDocs!) {
+      // Step 2: Fallback to the newest dated document matching sport & active mode
+      List<DossiersRecord> modeDocs = widget.dossierDocs!.where((record) {
         final docId = record.reference.id.toLowerCase();
-        bool isMatch = false;
+        return docId.contains(sportKey) &&
+            docId.contains('master') &&
+            _isDocMatchingMode(docId, selectedMode);
+      }).toList();
 
-        if (selectedMode == 'AUDIT') {
-          isMatch = docId.contains(sportKey) &&
-              docId.contains('master') &&
-              (docId.contains('eod') ||
-                  docId.contains('eow') ||
-                  docId.contains('audit'));
-        } else {
-          isMatch = docId.contains(sportKey) &&
-              docId.contains('master') &&
-              !docId.contains('eod') &&
-              !docId.contains('eow') &&
-              !docId.contains('audit');
-        }
+      modeDocs.sort((a, b) => b.reference.id.compareTo(a.reference.id));
 
-        if (isMatch) {
-          final data = record.snapshotData;
-          final String rawUrl = _getFlexibleDeep(data, candidateKeys, '');
-          final sanitized = _sanitizeUrl(rawUrl);
-          if (sanitized.isNotEmpty) return sanitized;
-        }
+      for (var record in modeDocs) {
+        final rawUrl = _getFlexibleDeep(record.snapshotData, candidateKeys, '');
+        final sanitized = _sanitizeUrl(rawUrl);
+        if (sanitized.isNotEmpty) return sanitized;
       }
     }
 
@@ -2264,7 +2326,8 @@ Get full access: tailzs.com
                             context: context,
                             pdfUrl: cleanUrl,
                             docId: docId,
-                            titleLabel: 'MASTER DOSSIER ($selectedSport)',
+                            titleLabel:
+                                'MASTER DOSSIER ($selectedSport • $selectedMode)',
                           );
                         } else {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -3107,7 +3170,9 @@ Get full access: tailzs.com
       final docId = record.reference.id.toLowerCase();
       if (docId.contains(sportKey)) {
         if (activeMode == 'AUDIT') {
-          if ((docId.contains('eod') || docId.contains('eow')) &&
+          if ((docId.contains('eod') ||
+                  docId.contains('eow') ||
+                  docId.contains('audit')) &&
               docId.contains('master') &&
               docId.contains('latest')) {
             targetDoc = record;
@@ -3116,6 +3181,7 @@ Get full access: tailzs.com
         } else {
           if (!docId.contains('eod') &&
               !docId.contains('eow') &&
+              !docId.contains('audit') &&
               docId.contains('master') &&
               docId.contains('latest')) {
             targetDoc = record;

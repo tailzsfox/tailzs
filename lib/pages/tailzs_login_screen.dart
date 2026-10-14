@@ -43,6 +43,19 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
   void initState() {
     super.initState();
     _checkExistingSession();
+
+    // NEW: Listen for background subscription updates (e.g., from Restore Purchases)
+    Purchases.addCustomerInfoUpdateListener((info) {
+      if (mounted) {
+        final entitlement = info.entitlements.all['tailzs'];
+        final bool isSubbed = (entitlement != null && entitlement.isActive) ||
+            info.entitlements.active.isNotEmpty;
+
+        if (isSubbed) {
+          _navigateWithFallback();
+        }
+      }
+    });
   }
 
   // Multi-Strategy Navigation Engine
@@ -124,6 +137,8 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    // NEW: Clean up listener to prevent memory leaks
+    Purchases.removeCustomerInfoUpdateListener((_) {});
     super.dispose();
   }
 

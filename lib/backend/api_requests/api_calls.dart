@@ -13,9 +13,9 @@ const _kPrivateApiFunctionName = 'ffPrivateApiCall';
 
 class TriggerNCAAFPipelineCall {
   static Future<ApiCallResponse> call({
-    int? week = 6,
+    int? week = 7,
     String? tier = 'merge',
-    String? mode = 'eow',
+    String? mode = 'prospective',
   }) async {
     final ffApiRequestBody = '''
 {
@@ -46,7 +46,7 @@ class TriggerNCAAFPipelineCall {
 
 class TriggerMLBPipelineCall {
   static Future<ApiCallResponse> call({
-    String? mode = 'eod',
+    String? mode = 'prospective',
     String? tier = 'merge',
     String? date = '',
   }) async {
