@@ -5,6 +5,7 @@ import '/flutter_flow/ff_builtin_enums.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
 import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
 import 'package:flutter/material.dart' hide RepeatMode;
 // Begin custom widget code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
@@ -50,21 +51,21 @@ class TailzsQuantTerminal extends StatefulWidget {
 }
 
 class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
-  String selectedMode = 'AUDIT';
+  String selectedMode = 'PROSPECTIVE';
   String selectedSport = 'NCAAF';
   String selectedTier = 'TIER 1 PARLAY';
+  String? selectedDossierDocId;
   final TextEditingController _searchController = TextEditingController();
   final Set<int> expandedDeepDives = {};
   final Set<String> pinnedGameKeys = {};
 
-  // RevenueCat Active State
+  User? _currentUser;
   bool _rcIsSubscribed = false;
   bool _isPurchasing = false;
 
-  // Subscriptions & Auth Subscriptions
   StreamSubscription<User?>? _authSubscription;
+  void Function(CustomerInfo)? _rcCustomerInfoListener;
 
-  // Local In-Memory Cache
   final Map<String, List<Map<String, dynamic>>> _gamesCache = {};
 
   final List<String> activeSportsList = [
@@ -75,6 +76,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   @override
   void initState() {
     super.initState();
+    _currentUser = FirebaseAuth.instance.currentUser;
     _initRevenueCat();
     _listenForAuthAndRevenueCatSync();
     _listenForSessionRevocation();
@@ -83,28 +85,104 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   @override
   void dispose() {
     _authSubscription?.cancel();
+    if (_rcCustomerInfoListener != null) {
+      Purchases.removeCustomerInfoUpdateListener(_rcCustomerInfoListener!);
+    }
     _searchController.dispose();
     super.dispose();
   }
 
+  Future<void> _initRevenueCat() async {
+    try {
+      final bool isConfigured = await Purchases.isConfigured;
+      if (!isConfigured) {
+        PurchasesConfiguration configuration;
+        if (Platform.isAndroid) {
+          configuration =
+              PurchasesConfiguration("goog_WarGoEiwwpsSXCmpsGdIKNtxayq");
+        } else if (Platform.isIOS) {
+          configuration =
+              PurchasesConfiguration("appl_BtLDOTxBkRDYTAvOnGCAkDUXBxo");
+        } else {
+          return;
+        }
+        await Purchases.configure(configuration);
+      }
+
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null && !currentUser.isAnonymous) {
+        await Purchases.logIn(currentUser.uid);
+      }
+
+      CustomerInfo info = await Purchases.getCustomerInfo();
+      _updateSubFromCustomerInfo(info);
+
+      _rcCustomerInfoListener = (info) {
+        _updateSubFromCustomerInfo(info);
+      };
+      Purchases.addCustomerInfoUpdateListener(_rcCustomerInfoListener!);
+    } catch (e) {
+      debugPrint('RevenueCat Initialization guard error: $e');
+    }
+  }
+
   void _listenForAuthAndRevenueCatSync() {
     _authSubscription =
-        FirebaseAuth.instance.authStateChanges().listen((user) async {
-      if (user != null) {
+        FirebaseAuth.instance.userChanges().listen((user) async {
+      if (mounted) {
+        setState(() {
+          _currentUser = user;
+          _gamesCache.clear();
+        });
+      }
+
+      if (user != null && !user.isAnonymous) {
         try {
-          await Purchases.logIn(user.uid);
-          final CustomerInfo info = await Purchases.getCustomerInfo();
-          _updateSubFromCustomerInfo(info);
+          if (await Purchases.isConfigured) {
+            await Purchases.logIn(user.uid);
+            final CustomerInfo info = await Purchases.getCustomerInfo();
+            _updateSubFromCustomerInfo(info);
+          }
         } catch (e) {
           debugPrint('Auth change RevenueCat sync error: $e');
+        }
+      } else if (user == null) {
+        try {
+          if (await Purchases.isConfigured) {
+            await Purchases.logOut();
+          }
+        } catch (_) {}
+        if (mounted) {
+          setState(() {
+            _rcIsSubscribed = false;
+          });
         }
       }
     });
   }
 
+  void _updateSubFromCustomerInfo(CustomerInfo info) {
+    final entitlement = info.entitlements.all['tailzs'];
+    bool active = (entitlement != null && entitlement.isActive) ||
+        info.entitlements.active.isNotEmpty;
+
+    final userEmail =
+        FirebaseAuth.instance.currentUser?.email?.toLowerCase() ?? '';
+    if (userEmail.contains('reviewer') || userEmail.contains('tailzs.com')) {
+      active = true;
+    }
+
+    if (mounted) {
+      setState(() {
+        _rcIsSubscribed = active;
+        _gamesCache.clear();
+      });
+    }
+  }
+
   void _listenForSessionRevocation() async {
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
+    if (user == null || user.isAnonymous) return;
 
     final prefs = await SharedPreferences.getInstance();
     final deviceId = prefs.getString('tailzs_device_id');
@@ -124,14 +202,16 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
         if (!activeDevices.contains(deviceId)) {
           await FirebaseAuth.instance.signOut();
           try {
-            await Purchases.logOut();
+            if (await Purchases.isConfigured) {
+              await Purchases.logOut();
+            }
           } catch (_) {}
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
                 content: Text(
-                    'Session Expired: Account in use on other devices. Securely logged out.'),
+                    'Session Expired: Account in use on another device. Securely logged out.'),
                 backgroundColor: Color(0xFFFF3366),
                 duration: Duration(seconds: 5),
               ),
@@ -145,10 +225,10 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
   void _navigateToLoginScreen(BuildContext context) {
     final List<String> pageNames = [
-      'TerminalPage',
-      'LoginScreen',
-      'Terminal',
       'LoginPage',
+      'LoginScreen',
+      'Login',
+      'AuthPage',
     ];
 
     for (var pageName in pageNames) {
@@ -159,9 +239,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     }
 
     final List<String> routePaths = [
-      '/terminalPage',
+      '/loginPage',
       '/login',
-      '/',
+      '/loginScreen',
     ];
 
     for (var path in routePaths) {
@@ -170,6 +250,194 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
         return;
       } catch (_) {}
     }
+  }
+
+  String _sanitizeUrl(String rawUrl) {
+    if (rawUrl.trim().isEmpty) return '';
+    String clean = rawUrl.trim().replaceAll(RegExp(r'["\x27\r\n]'), '');
+
+    while (clean.contains('%252F') ||
+        clean.contains('%2520') ||
+        clean.contains('%2525')) {
+      clean = clean.replaceAll('%2525', '%25');
+      clean = clean.replaceAll('%252F', '%2F');
+      clean = clean.replaceAll('%2520', '%20');
+    }
+
+    if (clean.toLowerCase().startsWith('gs://')) {
+      clean = clean.replaceFirst(RegExp(r'^gs://', caseSensitive: false),
+          'https://storage.googleapis.com/');
+    }
+
+    if (clean.contains('storage.cloud.google.com')) {
+      clean = clean.replaceAll(
+          'storage.cloud.google.com', 'storage.googleapis.com');
+    }
+
+    if (clean.toLowerCase().startsWith('http://')) {
+      clean = clean.replaceFirst(
+          RegExp(r'^http://', caseSensitive: false), 'https://');
+    } else if (!clean.toLowerCase().startsWith('https://')) {
+      clean = clean.replaceFirst(RegExp(r'^\/\/'), '');
+      clean = 'https://$clean';
+    }
+
+    if (clean.contains(' ') && !clean.contains('%20')) {
+      clean = clean.replaceAll(' ', '%20');
+    }
+
+    return clean;
+  }
+
+  bool _isDocMatchingMode(String docId, String mode) {
+    final lower = docId.toLowerCase();
+    final bool isAuditDoc = lower.contains('eod') ||
+        lower.contains('eow') ||
+        lower.contains('audit');
+    return (mode == 'AUDIT') ? isAuditDoc : !isAuditDoc;
+  }
+
+  String _extractDateKey(String docId, Map<String, dynamic> data) {
+    final fDate = data['formatted_date']?.toString() ??
+        data['slate_date']?.toString() ??
+        data['game_date']?.toString() ??
+        '';
+
+    final match = RegExp(r'(\d{4})[-_](\d{2})[-_](\d{2})').firstMatch(docId) ??
+        RegExp(r'(\d{4})[-_](\d{2})[-_](\d{2})').firstMatch(fDate);
+    if (match != null) {
+      return '${match.group(1)}_${match.group(2)}_${match.group(3)}';
+    }
+
+    final weekMatch = RegExp(r'week_(\d+)', caseSensitive: false).firstMatch(docId);
+    if (weekMatch != null) {
+      return 'week_${weekMatch.group(1)!.padLeft(2, "0")}';
+    }
+
+    final engMatch = RegExp(
+            r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d{1,2}),?\s*(\d{4})?',
+            caseSensitive: false)
+        .firstMatch(fDate);
+    if (engMatch != null) {
+      final monthStr = engMatch.group(1)!.toLowerCase();
+      final day = engMatch.group(2)!.padLeft(2, '0');
+      final year = engMatch.group(3) ?? '2026';
+      const months = {
+        'jan': '01',
+        'feb': '02',
+        'mar': '03',
+        'apr': '04',
+        'may': '05',
+        'jun': '06',
+        'jul': '07',
+        'aug': '08',
+        'sep': '09',
+        'oct': '10',
+        'nov': '11',
+        'dec': '12'
+      };
+      final mNum = months[monthStr.substring(0, 3)] ?? '10';
+      return '${year}_${mNum}_$day';
+    }
+    return '';
+  }
+
+  String _cleanDossierDisplayLabel(
+      String rawDocId, String rawFormattedDate, String sport, String mode) {
+    final weekMatch = RegExp(r'week_(\d+)', caseSensitive: false).firstMatch(rawDocId);
+    if (weekMatch != null) {
+      return '🏈 $sport WEEK ${weekMatch.group(1)} MASTER SLATE';
+    }
+    if (rawFormattedDate.trim().isNotEmpty) {
+      return '📅 ${rawFormattedDate.toUpperCase().trim()}';
+    }
+    String clean = rawDocId.replaceAll('_', ' ').toUpperCase().trim();
+    clean = clean.replaceAll('DOSSIER', '').replaceAll('RECORD', '').trim();
+    if (clean.contains('MASTER')) {
+      clean = clean.replaceAll('MASTER', 'SLATE').trim();
+    }
+    return clean.isEmpty ? '$sport $mode SLATE' : clean;
+  }
+
+  Map<String, String>? _resolveActiveMasterDossier() {
+    final String sportKey = selectedSport.toLowerCase();
+    final List<String> candidateKeys = [
+      'pdf_url',
+      'dossier_pdf_url',
+      'dossier_url',
+      'pdf_link',
+      'dossier_pdf',
+      'url',
+      'pdf',
+      'dossier'
+    ];
+
+    if (widget.dossierDocs != null && widget.dossierDocs!.isNotEmpty) {
+      if (selectedDossierDocId != null) {
+        for (var record in widget.dossierDocs!) {
+          if (record.reference.id.toLowerCase() ==
+              selectedDossierDocId!.toLowerCase()) {
+            final rawUrl =
+                _getFlexibleDeep(record.snapshotData, candidateKeys, '');
+            final sanitized = _sanitizeUrl(rawUrl);
+            if (sanitized.isNotEmpty) {
+              return {
+                'url': sanitized,
+                'docId': record.reference.id,
+                'label': _cleanDossierDisplayLabel(
+                    record.reference.id, '', selectedSport, selectedMode),
+              };
+            }
+          }
+        }
+      }
+
+      List<DossiersRecord> modeDocs = widget.dossierDocs!.where((record) {
+        final docId = record.reference.id.toLowerCase();
+        return docId.contains(sportKey) &&
+            _isDocMatchingMode(docId, selectedMode);
+      }).toList();
+
+      modeDocs.sort((a, b) {
+        final aId = a.reference.id.toLowerCase();
+        final bId = b.reference.id.toLowerCase();
+        final aWeek = int.tryParse(RegExp(r'week_(\d+)').firstMatch(aId)?.group(1) ?? '-1') ?? -1;
+        final bWeek = int.tryParse(RegExp(r'week_(\d+)').firstMatch(bId)?.group(1) ?? '-1') ?? -1;
+        if (aWeek != bWeek) return bWeek.compareTo(aWeek);
+        final aLatest = aId.contains('latest') ? 1 : 0;
+        final bLatest = bId.contains('latest') ? 1 : 0;
+        if (aLatest != bLatest) return bLatest.compareTo(aLatest);
+        return bId.compareTo(aId);
+      });
+
+      for (var record in modeDocs) {
+        final rawUrl =
+            _getFlexibleDeep(record.snapshotData, candidateKeys, '');
+        final sanitized = _sanitizeUrl(rawUrl);
+        if (sanitized.isNotEmpty) {
+          return {
+            'url': sanitized,
+            'docId': record.reference.id,
+            'label': _cleanDossierDisplayLabel(
+                record.reference.id, '', selectedSport, selectedMode),
+          };
+        }
+      }
+    }
+
+    if (widget.dossierUrl != null && widget.dossierUrl!.isNotEmpty) {
+      final clean = _sanitizeUrl(widget.dossierUrl!);
+      final fallbackDocId = selectedMode == 'AUDIT'
+          ? '${sportKey}_eod_master_latest'
+          : '${sportKey}_master_latest';
+      return {
+        'url': clean,
+        'docId': fallbackDocId,
+        'label': 'MASTER DOSSIER ($selectedSport • $selectedMode)',
+      };
+    }
+
+    return null;
   }
 
   Future<void> _accessDossierSmartCache({
@@ -197,9 +465,10 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
     try {
       final Directory appDir = await getApplicationDocumentsDirectory();
+      final String urlSignature = cleanUrl.hashCode.abs().toString();
       final String cleanDocKey =
           docId.replaceAll(RegExp(r'[^a-zA-Z0-9_]'), '_');
-      final String filePath = '${appDir.path}/$cleanDocKey.pdf';
+      final String filePath = '${appDir.path}/${cleanDocKey}_$urlSignature.pdf';
       final File localFile = File(filePath);
 
       if (await localFile.exists() && (await localFile.length()) > 1024) {
@@ -363,52 +632,161 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     );
   }
 
-  Future<void> _initRevenueCat() async {
-    try {
-      PurchasesConfiguration configuration;
-      if (Platform.isAndroid) {
-        configuration =
-            PurchasesConfiguration("goog_WarGoEiwwpsSXCmpsGdIKNtxayq");
-      } else if (Platform.isIOS) {
-        configuration =
-            PurchasesConfiguration("appl_BtLDOTxBkRDYTAvOnGCAkDUXBxo");
-      } else {
-        return;
+  void _showWeekSelectorModal(BuildContext context) {
+    if (widget.dossierDocs == null || widget.dossierDocs!.isEmpty) return;
+
+    final String sportKey = selectedSport.toLowerCase();
+    final List<String> candidateKeys = [
+      'pdf_url',
+      'dossier_pdf_url',
+      'dossier_url',
+      'pdf_link',
+      'pdf',
+      'url'
+    ];
+
+    Map<String, String>? latestDossier;
+    List<Map<String, String>> historicalDossiers = [];
+    final Set<String> registeredUrls = {};
+    String activeLatestDateKey = '';
+    String activeLatestFormatted = '';
+
+    List<DossiersRecord> modeDocs = widget.dossierDocs!.where((record) {
+      final docId = record.reference.id.toLowerCase();
+      return docId.contains(sportKey) &&
+          _isDocMatchingMode(docId, selectedMode);
+    }).toList();
+
+    modeDocs.sort((a, b) {
+      final aId = a.reference.id.toLowerCase();
+      final bId = b.reference.id.toLowerCase();
+      final aWeek = int.tryParse(RegExp(r'week_(\d+)').firstMatch(aId)?.group(1) ?? '-1') ?? -1;
+      final bWeek = int.tryParse(RegExp(r'week_(\d+)').firstMatch(bId)?.group(1) ?? '-1') ?? -1;
+      if (aWeek != bWeek) return bWeek.compareTo(aWeek);
+      final aLatest = aId.contains('latest') ? 1 : 0;
+      final bLatest = bId.contains('latest') ? 1 : 0;
+      if (aLatest != bLatest) return bLatest.compareTo(aLatest);
+      return bId.compareTo(aId);
+    });
+
+    for (var record in modeDocs) {
+      final docId = record.reference.id.toLowerCase();
+      final rawUrl = _getFlexibleDeep(record.snapshotData, candidateKeys, '');
+      final cleanUrl = _sanitizeUrl(rawUrl);
+      if (cleanUrl.isNotEmpty && latestDossier == null) {
+        activeLatestFormatted = _getFlexibleDeep(record.snapshotData,
+            ['formatted_date', 'slate_date', 'game_date'], '');
+        activeLatestDateKey = _extractDateKey(docId, record.snapshotData);
+
+        latestDossier = {
+          'label': _cleanDossierDisplayLabel(
+              record.reference.id, activeLatestFormatted, selectedSport, selectedMode),
+          'url': cleanUrl,
+          'docId': record.reference.id,
+        };
+        registeredUrls.add(cleanUrl);
+      } else if (cleanUrl.isNotEmpty && !registeredUrls.contains(cleanUrl)) {
+        final docFormattedDate = _getFlexibleDeep(record.snapshotData,
+            ['formatted_date', 'slate_date', 'game_date'], '');
+        final docDateKey = _extractDateKey(docId, record.snapshotData);
+
+        registeredUrls.add(cleanUrl);
+        historicalDossiers.add({
+          'label': _cleanDossierDisplayLabel(
+              record.reference.id, docFormattedDate, selectedSport, selectedMode),
+          'url': cleanUrl,
+          'docId': record.reference.id,
+          'sortKey': docDateKey.isNotEmpty ? docDateKey : docId,
+        });
       }
-      await Purchases.configure(configuration);
-
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser != null) {
-        await Purchases.logIn(currentUser.uid);
-      }
-
-      CustomerInfo info = await Purchases.getCustomerInfo();
-      _updateSubFromCustomerInfo(info);
-
-      Purchases.addCustomerInfoUpdateListener((info) {
-        _updateSubFromCustomerInfo(info);
-      });
-    } catch (e) {
-      debugPrint('RevenueCat Initialization error: $e');
-    }
-  }
-
-  void _updateSubFromCustomerInfo(CustomerInfo info) {
-    final entitlement = info.entitlements.all['tailzs'];
-    bool active = (entitlement != null && entitlement.isActive) ||
-        info.entitlements.active.isNotEmpty;
-
-    final userEmail =
-        FirebaseAuth.instance.currentUser?.email?.toLowerCase() ?? '';
-    if (userEmail.contains('reviewer') || userEmail.contains('tailzs.com')) {
-      active = true;
     }
 
-    if (mounted) {
-      setState(() {
-        _rcIsSubscribed = active;
-      });
+    List<Map<String, String>> finalModalList = [];
+    if (latestDossier != null) {
+      finalModalList.add(latestDossier);
+      finalModalList.addAll(historicalDossiers.take(3));
+    } else {
+      finalModalList.addAll(historicalDossiers.take(4));
     }
+
+    if (finalModalList.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+              'No $selectedSport ($selectedMode) Master Dossiers found in system.'),
+          backgroundColor: const Color(0xFFFF5E00),
+        ),
+      );
+      return;
+    }
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF182226),
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (context) {
+        return Container(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('🗓️ SELECT $selectedSport ($selectedMode) MASTER SLATE',
+                      style: const TextStyle(
+                          color: Color(0xFF00F5D4),
+                          fontSize: 11,
+                          fontWeight: FontWeight.w900)),
+                  IconButton(
+                      icon: const Icon(Icons.close,
+                          color: Color(0xFF8A99A6), size: 18),
+                      onPressed: () => Navigator.pop(context)),
+                ],
+              ),
+              const SizedBox(height: 10),
+              ...finalModalList.map((item) => Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: ElevatedButton.icon(
+                      onPressed: () {
+                        Navigator.pop(context);
+                        setState(() {
+                          selectedDossierDocId = item['docId'];
+                          _gamesCache.clear();
+                        });
+
+                        _showDossierOptionsModal(
+                          context: context,
+                          pdfUrl: item['url']!,
+                          docId: item['docId']!,
+                          titleLabel: item['label']!,
+                        );
+                      },
+                      icon: const Icon(Icons.picture_as_pdf,
+                          color: Color(0xFFFF5E00), size: 16),
+                      label: Text(item['label']!,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFF0B1114),
+                          alignment: Alignment.centerLeft,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                              side:
+                                  const BorderSide(color: Color(0xFF24343B)))),
+                    ),
+                  )),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   Future<bool> _makePurchase(BuildContext context, String packageType,
@@ -487,6 +865,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       if (mounted) {
         setState(() {
           _rcIsSubscribed = true;
+          _gamesCache.clear();
         });
       }
 
@@ -540,6 +919,21 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
   Future<void> _restorePurchases() async {
     try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      String currentRcId = 'Unconfigured';
+      if (await Purchases.isConfigured) {
+        currentRcId = await Purchases.appUserID;
+      }
+
+      if (currentUser != null && !currentUser.isAnonymous) {
+        if (currentRcId != currentUser.uid && await Purchases.isConfigured) {
+          debugPrint(
+              'Syncing RevenueCat appUserID to Auth UID: ${currentUser.uid}');
+          await Purchases.logIn(currentUser.uid);
+          currentRcId = await Purchases.appUserID;
+        }
+      }
+
       CustomerInfo info = await Purchases.restorePurchases();
       _updateSubFromCustomerInfo(info);
 
@@ -551,21 +945,29 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
         setState(() {
           _rcIsSubscribed = isNowSubbed;
+          _gamesCache.clear();
         });
+
+        final String activeEnts = info.entitlements.active.keys.isNotEmpty
+            ? info.entitlements.active.keys.join(', ')
+            : 'None';
+        final String verifiedId = info.originalAppUserId.isNotEmpty
+            ? info.originalAppUserId
+            : currentRcId;
 
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text(isNowSubbed
-              ? '🎉 Purchases restored! Active subscription found.'
-              : 'Restore completed. No active subscriptions found.'),
+              ? '🎉 RESTORE VERIFIED: Active access confirmed for ID: $verifiedId (Entitlements: $activeEnts).'
+              : '⚠️ RESTORE ATTEMPTED: Checked ID: $verifiedId (Auth: ${currentUser?.email ?? "Guest"}). No active subscription attached to this receipt.'),
           backgroundColor:
               isNowSubbed ? const Color(0xFF00F5D4) : const Color(0xFFFF5E00),
-          duration: const Duration(seconds: 3),
+          duration: const Duration(seconds: 4),
         ));
       }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Restore failed: ${e.toString()}'),
+          content: Text('Restore notice: ${e.toString()}'),
           backgroundColor: const Color(0xFFFF3366),
         ));
       }
@@ -575,7 +977,8 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   @override
   void didUpdateWidget(TailzsQuantTerminal oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.dossierDocs != oldWidget.dossierDocs) {
+    if (widget.dossierDocs != oldWidget.dossierDocs ||
+        widget.isSub != oldWidget.isSub) {
       _gamesCache.clear();
     }
   }
@@ -611,6 +1014,12 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       final parts = matchup.split('@');
       awayTeam = parts[0].trim();
       homeTeam = parts[1].trim();
+    } else if (matchup.toLowerCase().contains(' at ')) {
+      final parts = matchup.split(RegExp(r'\s+at\s+', caseSensitive: false));
+      if (parts.length >= 2) {
+        awayTeam = parts[0].trim();
+        homeTeam = parts[1].trim();
+      }
     } else if (matchup.toLowerCase().contains(' vs ')) {
       final parts = matchup.split(RegExp(r'\s+vs\.?\s+', caseSensitive: false));
       if (parts.length >= 2) {
@@ -796,43 +1205,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     return false;
   }
 
-  String _sanitizeUrl(String rawUrl) {
-    if (rawUrl.trim().isEmpty) return '';
-    String clean = rawUrl.trim().replaceAll(RegExp(r'''["'\n\r]'''), '');
-
-    while (clean.contains('%252F') ||
-        clean.contains('%2520') ||
-        clean.contains('%2525')) {
-      clean = clean.replaceAll('%2525', '%25');
-      clean = clean.replaceAll('%252F', '%2F');
-      clean = clean.replaceAll('%2520', '%20');
-    }
-
-    if (clean.toLowerCase().startsWith('gs://')) {
-      clean = clean.replaceFirst(RegExp(r'^gs://', caseSensitive: false),
-          'https://storage.googleapis.com/');
-    }
-
-    if (clean.contains('storage.cloud.google.com')) {
-      clean = clean.replaceAll(
-          'storage.cloud.google.com', 'storage.googleapis.com');
-    }
-
-    if (clean.toLowerCase().startsWith('http://')) {
-      clean = clean.replaceFirst(
-          RegExp(r'^http://', caseSensitive: false), 'https://');
-    } else if (!clean.toLowerCase().startsWith('https://')) {
-      clean = clean.replaceFirst(RegExp(r'^\/\/'), '');
-      clean = 'https://$clean';
-    }
-
-    if (clean.contains(' ') && !clean.contains('%20')) {
-      clean = clean.replaceAll(' ', '%20');
-    }
-
-    return clean;
-  }
-
   String _cleanLegPick(String val, String fallback) {
     if (val.trim().isEmpty || val == 'TBD') return fallback;
     String clean = val.trim();
@@ -862,7 +1234,8 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
 
     if (clean.contains('@') ||
         clean.contains(' vs ') ||
-        clean.contains(' VS ')) {
+        clean.contains(' VS ') ||
+        clean.toLowerCase().contains(' at ')) {
       return fallback;
     }
     return clean.trim().isEmpty ? fallback : clean.trim();
@@ -1087,7 +1460,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                     }
 
                     try {
-                      await Purchases.logOut();
+                      if (await Purchases.isConfigured) {
+                        await Purchases.logOut();
+                      }
                     } catch (_) {}
 
                     try {
@@ -1101,6 +1476,8 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                     if (mounted) {
                       setState(() {
                         _rcIsSubscribed = false;
+                        _currentUser = null;
+                        _gamesCache.clear();
                       });
                     }
 
@@ -1150,7 +1527,9 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
   }
 
   void _showSettingsModal(BuildContext context, bool isSubscribed) {
-    final currentUser = FirebaseAuth.instance.currentUser;
+    final user = _currentUser ?? FirebaseAuth.instance.currentUser;
+    final bool hasEmailAuth =
+        user != null && !user.isAnonymous && (user.email?.isNotEmpty ?? false);
 
     showModalBottomSheet(
       context: context,
@@ -1267,18 +1646,23 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                         borderRadius: BorderRadius.circular(8))),
               ),
               const SizedBox(height: 8),
-              if (currentUser != null)
+
+              if (hasEmailAuth)
                 ElevatedButton.icon(
                   onPressed: () async {
                     HapticFeedback.mediumImpact();
                     Navigator.pop(context);
                     await FirebaseAuth.instance.signOut();
                     try {
-                      await Purchases.logOut();
+                      if (await Purchases.isConfigured) {
+                        await Purchases.logOut();
+                      }
                     } catch (_) {}
                     if (mounted) {
                       setState(() {
                         _rcIsSubscribed = false;
+                        _currentUser = null;
+                        _gamesCache.clear();
                       });
                     }
                     if (context.mounted) {
@@ -1287,7 +1671,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                   },
                   icon: const Icon(Icons.logout,
                       color: Color(0xFFFF3366), size: 16),
-                  label: Text('LOG OUT (${currentUser.email ?? "ACCOUNT"})',
+                  label: Text('LOG OUT (${user.email})',
                       style: const TextStyle(
                           color: Color(0xFFFF3366),
                           fontSize: 11,
@@ -1300,11 +1684,75 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                           borderRadius: BorderRadius.circular(8),
                           side: const BorderSide(color: Color(0xFFFF3366)))),
                 )
-              else
+              else if (isSubscribed) ...[
                 ElevatedButton.icon(
-                  onPressed: () {
+                  onPressed: () async {
+                    HapticFeedback.mediumImpact();
                     Navigator.pop(context);
-                    _navigateToLoginScreen(context);
+                    await FirebaseAuth.instance.signOut();
+                    try {
+                      if (await Purchases.isConfigured) {
+                        await Purchases.logOut();
+                      }
+                    } catch (_) {}
+                    if (mounted) {
+                      setState(() {
+                        _rcIsSubscribed = false;
+                        _currentUser = null;
+                        _gamesCache.clear();
+                      });
+                    }
+                    if (context.mounted) {
+                      _navigateToLoginScreen(context);
+                    }
+                  },
+                  icon: const Icon(Icons.logout,
+                      color: Color(0xFFFF3366), size: 16),
+                  label: const Text('LOG OUT (ACTIVE SUBSCRIBER)',
+                      style: TextStyle(
+                          color: Color(0xFFFF3366),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF24343B),
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.all(12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: const BorderSide(color: Color(0xFFFF3366)))),
+                ),
+                const SizedBox(height: 8),
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await FirebaseAuth.instance.signOut();
+                    if (context.mounted) {
+                      _navigateToLoginScreen(context);
+                    }
+                  },
+                  icon: const Icon(Icons.link,
+                      color: Color(0xFF00F5D4), size: 16),
+                  label: const Text('LINK / SWITCH ACCOUNT',
+                      style: TextStyle(
+                          color: Color(0xFF00F5D4),
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold)),
+                  style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF0B1114),
+                      alignment: Alignment.centerLeft,
+                      padding: const EdgeInsets.all(12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          side: const BorderSide(color: Color(0xFF00F5D4)))),
+                ),
+              ] else
+                ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(context);
+                    await FirebaseAuth.instance.signOut();
+                    if (context.mounted) {
+                      _navigateToLoginScreen(context);
+                    }
                   },
                   icon: const Icon(Icons.login,
                       color: Color(0xFF00F5D4), size: 16),
@@ -1419,7 +1867,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
               ),
               const SizedBox(height: 14),
               const Center(
-                child: Text('Tailzs Quant Terminal v1.0.0+17',
+                child: Text('Tailzs Quant Terminal v1.0.0+18',
                     style: TextStyle(
                         color: Color(0xFF8A99A6),
                         fontSize: 9,
@@ -1717,226 +2165,6 @@ Get full access: tailzs.com
     );
   }
 
-  // --- STRICT MODE & DEDUPLICATED DOSSIER SYSTEM ---
-
-  bool _isDocMatchingMode(String docId, String mode) {
-    final lower = docId.toLowerCase();
-    final bool isAuditDoc = lower.contains('eod') ||
-        lower.contains('eow') ||
-        lower.contains('audit');
-    return (mode == 'AUDIT') ? isAuditDoc : !isAuditDoc;
-  }
-
-  String _cleanDossierDisplayLabel(String rawDocId, String sport, String mode) {
-    String clean = rawDocId.replaceAll('_', ' ').toUpperCase().trim();
-    clean = clean.replaceAll('DOSSIER', '').replaceAll('RECORD', '').trim();
-    if (clean.contains('MASTER')) {
-      clean = clean.replaceAll('MASTER', 'SLATE').trim();
-    }
-    return clean.isEmpty ? '$sport $mode SLATE' : clean;
-  }
-
-  void _showWeekSelectorModal(BuildContext context) {
-    if (widget.dossierDocs == null || widget.dossierDocs!.isEmpty) return;
-
-    final String sportKey = selectedSport.toLowerCase();
-    final List<String> candidateKeys = [
-      'pdf_url',
-      'dossier_pdf_url',
-      'dossier_url',
-      'pdf_link',
-      'pdf',
-      'url'
-    ];
-
-    Map<String, String>? latestDossier;
-    List<Map<String, String>> historicalDossiers = [];
-    final Set<String> registeredUrls = {};
-
-    // 1. Locate the authentic 'latest' doc for active Sport & Mode
-    for (var record in widget.dossierDocs!) {
-      final docId = record.reference.id.toLowerCase();
-      if (docId.contains(sportKey) &&
-          docId.contains('master') &&
-          docId.contains('latest') &&
-          _isDocMatchingMode(docId, selectedMode)) {
-        final rawUrl = _getFlexibleDeep(record.snapshotData, candidateKeys, '');
-        final cleanUrl = _sanitizeUrl(rawUrl);
-        if (cleanUrl.isNotEmpty) {
-          latestDossier = {
-            'label': '⚡ LATEST MASTER SLATE ($selectedSport • $selectedMode)',
-            'url': cleanUrl,
-            'docId': docId,
-          };
-          registeredUrls.add(cleanUrl);
-          break;
-        }
-      }
-    }
-
-    // 2. Locate all historical / dated dossiers matching active Sport & Mode
-    for (var record in widget.dossierDocs!) {
-      final docId = record.reference.id.toLowerCase();
-      if (docId.contains(sportKey) &&
-          docId.contains('master') &&
-          !docId.contains('latest') &&
-          _isDocMatchingMode(docId, selectedMode)) {
-        final rawUrl = _getFlexibleDeep(record.snapshotData, candidateKeys, '');
-        final cleanUrl = _sanitizeUrl(rawUrl);
-
-        // Deduplicate: Never repeat a URL already owned by 'latest' or prior dates
-        if (cleanUrl.isNotEmpty && !registeredUrls.contains(cleanUrl)) {
-          registeredUrls.add(cleanUrl);
-          historicalDossiers.add({
-            'label': _cleanDossierDisplayLabel(
-                record.reference.id, selectedSport, selectedMode),
-            'url': cleanUrl,
-            'docId': docId,
-          });
-        }
-      }
-    }
-
-    // Sort historical dossiers descending by document ID (most recent dates first)
-    historicalDossiers
-        .sort((a, b) => (b['docId'] ?? '').compareTo(a['docId'] ?? ''));
-
-    // Construct the clean final list of exactly up to 4 options
-    List<Map<String, String>> finalModalList = [];
-    if (latestDossier != null) {
-      finalModalList.add(latestDossier);
-      finalModalList.addAll(historicalDossiers.take(3));
-    } else {
-      finalModalList.addAll(historicalDossiers.take(4));
-    }
-
-    if (finalModalList.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-              'No $selectedSport ($selectedMode) Master Dossiers found in system.'),
-          backgroundColor: const Color(0xFFFF5E00),
-        ),
-      );
-      return;
-    }
-
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: const Color(0xFF182226),
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) {
-        return Container(
-          padding: const EdgeInsets.all(20),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('🗓️ SELECT $selectedSport ($selectedMode) MASTER SLATE',
-                      style: const TextStyle(
-                          color: Color(0xFF00F5D4),
-                          fontSize: 11,
-                          fontWeight: FontWeight.w900)),
-                  IconButton(
-                      icon: const Icon(Icons.close,
-                          color: Color(0xFF8A99A6), size: 18),
-                      onPressed: () => Navigator.pop(context)),
-                ],
-              ),
-              const SizedBox(height: 10),
-              ...finalModalList.map((item) => Padding(
-                    padding: const EdgeInsets.only(bottom: 8.0),
-                    child: ElevatedButton.icon(
-                      onPressed: () async {
-                        Navigator.pop(context);
-                        _showDossierOptionsModal(
-                          context: context,
-                          pdfUrl: item['url']!,
-                          docId: item['docId']!,
-                          titleLabel: item['label']!,
-                        );
-                      },
-                      icon: const Icon(Icons.picture_as_pdf,
-                          color: Color(0xFFFF5E00), size: 16),
-                      label: Text(item['label']!,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold)),
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF0B1114),
-                          alignment: Alignment.centerLeft,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                              side:
-                                  const BorderSide(color: Color(0xFF24343B)))),
-                    ),
-                  )),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
-  String _getDossierPdfUrl() {
-    final List<String> candidateKeys = [
-      'pdf_url',
-      'dossier_pdf_url',
-      'dossier_url',
-      'pdf_link',
-      'dossier_pdf',
-      'url',
-      'pdf',
-      'dossier'
-    ];
-
-    if (widget.dossierDocs != null && widget.dossierDocs!.isNotEmpty) {
-      final String sportKey = selectedSport.toLowerCase();
-
-      // Step 1: Search for explicit latest matching sport & active mode
-      for (var record in widget.dossierDocs!) {
-        final docId = record.reference.id.toLowerCase();
-        if (docId.contains(sportKey) &&
-            docId.contains('master') &&
-            docId.contains('latest') &&
-            _isDocMatchingMode(docId, selectedMode)) {
-          final rawUrl =
-              _getFlexibleDeep(record.snapshotData, candidateKeys, '');
-          final sanitized = _sanitizeUrl(rawUrl);
-          if (sanitized.isNotEmpty) return sanitized;
-        }
-      }
-
-      // Step 2: Fallback to the newest dated document matching sport & active mode
-      List<DossiersRecord> modeDocs = widget.dossierDocs!.where((record) {
-        final docId = record.reference.id.toLowerCase();
-        return docId.contains(sportKey) &&
-            docId.contains('master') &&
-            _isDocMatchingMode(docId, selectedMode);
-      }).toList();
-
-      modeDocs.sort((a, b) => b.reference.id.compareTo(a.reference.id));
-
-      for (var record in modeDocs) {
-        final rawUrl = _getFlexibleDeep(record.snapshotData, candidateKeys, '');
-        final sanitized = _sanitizeUrl(rawUrl);
-        if (sanitized.isNotEmpty) return sanitized;
-      }
-    }
-
-    if (widget.dossierUrl != null && widget.dossierUrl!.isNotEmpty) {
-      return _sanitizeUrl(widget.dossierUrl!);
-    }
-    return '';
-  }
-
   bool _isMetadataKey(String str) {
     final lower = str.toLowerCase();
 
@@ -1953,9 +2181,14 @@ Get full access: tailzs.com
       return true;
     }
 
-    if (!lower.contains('@') &&
-        !lower.contains(' vs ') &&
-        !lower.contains(' vs.')) {
+    final bool hasValidDelimiter = lower.contains('@') ||
+        lower.contains(' vs ') ||
+        lower.contains(' vs.') ||
+        lower.contains(' at ') ||
+        lower.contains(' v ') ||
+        lower.contains(' / ');
+
+    if (!hasValidDelimiter) {
       return true;
     }
 
@@ -1964,8 +2197,16 @@ Get full access: tailzs.com
 
   @override
   Widget build(BuildContext context) {
-    final bool isSubscribed = _rcIsSubscribed || (widget.isSub ?? false);
-    final String cacheKey = '${selectedSport}_${selectedMode}_${selectedTier}';
+    final user = _currentUser ?? FirebaseAuth.instance.currentUser;
+    final userEmail = user?.email?.toLowerCase() ?? '';
+    final bool isVipUser =
+        userEmail.contains('reviewer') || userEmail.contains('tailzs.com');
+    final bool isSubscribed =
+        _rcIsSubscribed || isVipUser || (widget.isSub ?? false);
+
+    final String docIdScope = selectedDossierDocId ?? 'auto';
+    final String cacheKey =
+        '${selectedSport}_${selectedMode}_${selectedTier}_$docIdScope';
 
     List<Map<String, dynamic>> games;
     if (_gamesCache.containsKey(cacheKey)) {
@@ -2016,382 +2257,381 @@ Get full access: tailzs.com
       width: widget.width ?? double.infinity,
       height: widget.height ?? double.infinity,
       color: const Color(0xFF080C0E),
-      child: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // COMMAND HEADER
-            Container(
-              padding: const EdgeInsets.all(14.0),
-              decoration: BoxDecoration(
-                color: const Color(0xFF182226),
-                borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: const Color(0xFFF5E5C9), width: 1.5),
-                boxShadow: const [
-                  BoxShadow(
-                      color: Color(0x33F5E5C9),
-                      blurRadius: 10,
-                      offset: Offset(0, 4))
-                ],
-              ),
-              child: Column(
-                children: [
-                  Row(
-                    children: [
-                      Container(
-                          height: 32,
-                          margin: const EdgeInsets.only(right: 6),
-                          child: Image.network(
-                              'https://storage.googleapis.com/flutterflow-io-6f20.appspot.com/projects/tailzs-9bbvkw/assets/i4jahngiofzu/appleicon.png',
-                              fit: BoxFit.contain)),
-                      RichText(
-                          text: const TextSpan(children: [
-                        TextSpan(
-                            text: 'TAIL',
-                            style: TextStyle(
-                                color: Color(0xFFFF5E00),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.8)),
-                        TextSpan(
-                            text: 'ZS',
-                            style: TextStyle(
-                                color: Color(0xFF00F5D4),
-                                fontSize: 16,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.8))
-                      ])),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: SizedBox(
-                          height: 34,
-                          child: TextField(
-                            controller: _searchController,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 11),
-                            onChanged: (val) => setState(() {}),
-                            decoration: InputDecoration(
-                                hintText: 'Search team, game, or keyword...',
-                                hintStyle: const TextStyle(
-                                    color: Color(0xFF8A99A6), fontSize: 10),
-                                prefixIcon: const Icon(Icons.search,
-                                    color: Color(0xFF8A99A6), size: 15),
-                                filled: true,
-                                fillColor: const Color(0xFF0B1114),
-                                contentPadding: EdgeInsets.zero,
-                                enabledBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(
-                                        color: Color(0xFF24343B))),
-                                focusedBorder: OutlineInputBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                    borderSide: const BorderSide(
-                                        color: Color(0xFF00F5D4)))),
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      IconButton(
-                        icon: const Icon(Icons.settings,
-                            color: Color(0xFFF5E5C9), size: 20),
-                        onPressed: () {
-                          HapticFeedback.lightImpact();
-                          _showSettingsModal(context, isSubscribed);
-                        },
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: ['PROSPECTIVE', 'AUDIT'].map((mode) {
-                      final bool isSelected = selectedMode == mode;
-                      return Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            HapticFeedback.lightImpact();
-                            setState(() {
-                              selectedMode = mode;
-                              expandedDeepDives.clear();
-                            });
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
-                            padding: const EdgeInsets.symmetric(vertical: 7),
-                            decoration: BoxDecoration(
-                                color: isSelected
-                                    ? const Color(0xFFFF5E00)
-                                    : const Color(0xFF0B1114),
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(
-                                    color: isSelected
-                                        ? const Color(0xFFFF5E00)
-                                        : const Color(0xFF24343B)),
-                                boxShadow: isSelected
-                                    ? [
-                                        const BoxShadow(
-                                            color: Color(0x73FF5E00),
-                                            blurRadius: 8)
-                                      ]
-                                    : null),
-                            child: Text(mode,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    color: isSelected
-                                        ? Colors.white
-                                        : const Color(0xFF8A99A6),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w800)),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                  const SizedBox(height: 12),
-                  SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: Row(
-                      children: activeSportsList.map((sport) {
-                        final bool isSelected = selectedSport == sport;
-                        return GestureDetector(
-                          onTap: () {
-                            HapticFeedback.lightImpact();
-                            setState(() {
-                              selectedSport = sport;
-                              expandedDeepDives.clear();
-                            });
-                          },
-                          child: Container(
+      child: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14.0),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF182226),
+                  borderRadius: BorderRadius.circular(18),
+                  border:
+                      Border.all(color: const Color(0xFFF5E5C9), width: 1.5),
+                  boxShadow: const [
+                    BoxShadow(
+                        color: Color(0x33F5E5C9),
+                        blurRadius: 10,
+                        offset: Offset(0, 4))
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        Container(
+                            height: 32,
                             margin: const EdgeInsets.only(right: 6),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 5),
-                            decoration: BoxDecoration(
-                                color: isSelected
-                                    ? const Color(0xFF00F5D4)
-                                    : const Color(0xFF0B1114),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                    color: isSelected
-                                        ? const Color(0xFF00F5D4)
-                                        : const Color(0xFF24343B))),
-                            child: Text(sport,
-                                style: TextStyle(
-                                    color: isSelected
-                                        ? const Color(0xFF0B1114)
-                                        : const Color(0xFF8A99A6),
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.w800)),
+                            child: Image.network(
+                                'https://storage.googleapis.com/flutterflow-io-6f20.appspot.com/projects/tailzs-9bbvkw/assets/i4jahngiofzu/appleicon.png',
+                                fit: BoxFit.contain)),
+                        RichText(
+                            text: const TextSpan(children: [
+                          TextSpan(
+                              text: 'TAIL',
+                              style: TextStyle(
+                                  color: Color(0xFFFF5E00),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.8)),
+                          TextSpan(
+                              text: 'ZS',
+                              style: TextStyle(
+                                  color: Color(0xFF00F5D4),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.8))
+                        ])),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: SizedBox(
+                            height: 34,
+                            child: TextField(
+                              controller: _searchController,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 11),
+                              onChanged: (val) => setState(() {}),
+                              decoration: InputDecoration(
+                                  hintText: 'Search team, game, or keyword...',
+                                  hintStyle: const TextStyle(
+                                      color: Color(0xFF8A99A6), fontSize: 10),
+                                  prefixIcon: const Icon(Icons.search,
+                                      color: Color(0xFF8A99A6), size: 15),
+                                  filled: true,
+                                  fillColor: const Color(0xFF0B1114),
+                                  contentPadding: EdgeInsets.zero,
+                                  enabledBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: const BorderSide(
+                                          color: Color(0xFF24343B))),
+                                  focusedBorder: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(8),
+                                      borderSide: const BorderSide(
+                                          color: Color(0xFF00F5D4)))),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        IconButton(
+                          icon: const Icon(Icons.settings,
+                              color: Color(0xFFF5E5C9), size: 20),
+                          onPressed: () {
+                            HapticFeedback.lightImpact();
+                            _showSettingsModal(context, isSubscribed);
+                          },
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: ['PROSPECTIVE', 'AUDIT'].map((mode) {
+                        final bool isSelected = selectedMode == mode;
+                        return Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              setState(() {
+                                selectedMode = mode;
+                                selectedDossierDocId = null;
+                                expandedDeepDives.clear();
+                              });
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 2),
+                              padding: const EdgeInsets.symmetric(vertical: 7),
+                              decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? const Color(0xFFFF5E00)
+                                      : const Color(0xFF0B1114),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                      color: isSelected
+                                          ? const Color(0xFFFF5E00)
+                                          : const Color(0xFF24343B)),
+                                  boxShadow: isSelected
+                                      ? [
+                                          const BoxShadow(
+                                              color: Color(0x73FF5E00),
+                                              blurRadius: 8)
+                                        ]
+                                      : null),
+                              child: Text(mode,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      color: isSelected
+                                          ? Colors.white
+                                          : const Color(0xFF8A99A6),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w800)),
+                            ),
                           ),
                         );
                       }).toList(),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: ['TIER 1 PARLAY', 'TIER 2 ML', 'TIER 3 SIDE']
-                        .map((tier) {
-                      final bool isSelected = selectedTier == tier;
-                      return Expanded(
-                        child: GestureDetector(
-                          onTap: () {
-                            HapticFeedback.lightImpact();
-                            setState(() {
-                              selectedTier = tier;
-                              expandedDeepDives.clear();
-                            });
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.symmetric(horizontal: 2),
-                            padding: const EdgeInsets.symmetric(vertical: 6),
-                            decoration: BoxDecoration(
-                                color: isSelected
-                                    ? const Color(0xFFF5E5C9).withOpacity(0.12)
-                                    : const Color(0xFF0B1114),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                    color: isSelected
-                                        ? const Color(0xFFF5E5C9)
-                                        : const Color(0xFF24343B))),
-                            child: Text(tier,
-                                textAlign: TextAlign.center,
-                                style: TextStyle(
-                                    color: isSelected
-                                        ? const Color(0xFFF5E5C9)
-                                        : const Color(0xFF8A99A6),
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.w800)),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
-
-            // KPI BANNER
-            if (selectedMode == 'AUDIT') ...[
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                    color: const Color(0xFF182226),
-                    borderRadius: BorderRadius.circular(14),
-                    border:
-                        Border.all(color: const Color(0xFFF5E5C9), width: 1.5)),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildKpiItem(evalCount.toString(), 'EVAL'),
-                    _buildKpiItem(sweepsCount.toString(), 'SWEEPS'),
-                    _buildKpiItem(
-                        '${calculatedWinPct.toStringAsFixed(1)}%', 'WIN %'),
-                    _buildKpiItem(pendingCount.toString(), 'PENDING'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-            ] else ...[
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
-                decoration: BoxDecoration(
-                    color: const Color(0xFF182226),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: const Color(0xFF00F5D4).withOpacity(0.6),
-                        width: 1)),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Text('🎯 ', style: TextStyle(fontSize: 12)),
-                    Flexible(
-                      child: Text(
-                        'LIVE $selectedSport PROSPECTIVE SIGNALS (${games.length} QUEUED)',
-                        textAlign: TextAlign.center,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: Color(0xFF00F5D4),
-                            fontSize: 10,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 0.6),
+                    const SizedBox(height: 12),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: activeSportsList.map((sport) {
+                          final bool isSelected = selectedSport == sport;
+                          return GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              setState(() {
+                                selectedSport = sport;
+                                selectedDossierDocId = null;
+                                expandedDeepDives.clear();
+                              });
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(right: 6),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 5),
+                              decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? const Color(0xFF00F5D4)
+                                      : const Color(0xFF0B1114),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                      color: isSelected
+                                          ? const Color(0xFF00F5D4)
+                                          : const Color(0xFF24343B))),
+                              child: Text(sport,
+                                  style: TextStyle(
+                                      color: isSelected
+                                          ? const Color(0xFF0B1114)
+                                          : const Color(0xFF8A99A6),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w800)),
+                            ),
+                          );
+                        }).toList(),
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: ['TIER 1 PARLAY', 'TIER 2 ML', 'TIER 3 SIDE']
+                          .map((tier) {
+                        final bool isSelected = selectedTier == tier;
+                        return Expanded(
+                          child: GestureDetector(
+                            onTap: () {
+                              HapticFeedback.lightImpact();
+                              setState(() {
+                                selectedTier = tier;
+                                expandedDeepDives.clear();
+                              });
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 2),
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              decoration: BoxDecoration(
+                                  color: isSelected
+                                      ? const Color(0xFFF5E5C9)
+                                      .withOpacity(0.12)
+                                      : const Color(0xFF0B1114),
+                                  borderRadius: BorderRadius.circular(20),
+                                  border: Border.all(
+                                      color: isSelected
+                                          ? const Color(0xFFF5E5C9)
+                                          : const Color(0xFF24343B))),
+                              child: Text(tier,
+                                  textAlign: TextAlign.center,
+                                  style: TextStyle(
+                                      color: isSelected
+                                          ? const Color(0xFFF5E5C9)
+                                          : const Color(0xFF8A99A6),
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.w800)),
+                            ),
+                          ),
+                        );
+                      }).toList(),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 14),
-            ],
 
-            // DOSSIER VAULT BUTTON
-            Column(
-              children: [
+              if (selectedMode == 'AUDIT') ...[
                 Container(
+                  padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(10),
-                    boxShadow: isSubscribed
-                        ? [
-                            BoxShadow(
-                                color:
-                                    const Color(0xFFD4AF37).withOpacity(0.35),
-                                blurRadius: 16,
-                                offset: const Offset(0, 4))
-                          ]
-                        : [],
+                      color: const Color(0xFF182226),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: const Color(0xFFF5E5C9), width: 1.5)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _buildKpiItem(evalCount.toString(), 'EVAL'),
+                      _buildKpiItem(sweepsCount.toString(), 'SWEEPS'),
+                      _buildKpiItem(
+                          '${calculatedWinPct.toStringAsFixed(1)}%', 'WIN %'),
+                      _buildKpiItem(pendingCount.toString(), 'PENDING'),
+                    ],
                   ),
-                  child: GestureDetector(
-                    onLongPress: () {
-                      HapticFeedback.heavyImpact();
-                      if (!isSubscribed) {
-                        _showPaywallModal(context, 'UNLOCK DOSSIER VAULT');
-                        return;
-                      }
-                      _showWeekSelectorModal(context);
-                    },
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        HapticFeedback.mediumImpact();
+                ),
+                const SizedBox(height: 14),
+              ] else ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
+                  decoration: BoxDecoration(
+                      color: const Color(0xFF182226),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: const Color(0xFF00F5D4).withOpacity(0.6),
+                          width: 1)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text('🎯 ', style: TextStyle(fontSize: 12)),
+                      Flexible(
+                        child: Text(
+                          'LIVE $selectedSport PROSPECTIVE SIGNALS (${games.length} QUEUED)',
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                              color: Color(0xFF00F5D4),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.6),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+
+              Column(
+                children: [
+                  Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(10),
+                      boxShadow: isSubscribed
+                          ? [
+                              BoxShadow(
+                                  color:
+                                      const Color(0xFFD4AF37).withOpacity(0.35),
+                                  blurRadius: 16,
+                                  offset: const Offset(0, 4))
+                            ]
+                          : [],
+                    ),
+                    child: GestureDetector(
+                      onLongPress: () {
+                        HapticFeedback.heavyImpact();
                         if (!isSubscribed) {
                           _showPaywallModal(context, 'UNLOCK DOSSIER VAULT');
                           return;
                         }
-
-                        String pdfUrl = _getDossierPdfUrl();
-                        if (pdfUrl.isNotEmpty) {
-                          final cleanUrl = _sanitizeUrl(pdfUrl);
-                          final String docId =
-                              '${selectedSport.toLowerCase()}_master_latest';
-                          _showDossierOptionsModal(
-                            context: context,
-                            pdfUrl: cleanUrl,
-                            docId: docId,
-                            titleLabel:
-                                'MASTER DOSSIER ($selectedSport • $selectedMode)',
-                          );
-                        } else {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                  'Generating $selectedSport ($selectedMode) Master Dossier PDF...'),
-                              backgroundColor: const Color(0xFFFF5E00),
-                              duration: const Duration(seconds: 3),
-                            ),
-                          );
-                        }
+                        _showWeekSelectorModal(context);
                       },
-                      style: ElevatedButton.styleFrom(
-                          backgroundColor: isSubscribed
-                              ? const Color(0xFFD4AF37)
-                              : const Color(0xFF24343B),
-                          padding: const EdgeInsets.symmetric(vertical: 11),
-                          elevation: 0,
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              side: BorderSide(
-                                  color: isSubscribed
-                                      ? const Color(0xFFF3E5AB)
-                                      : const Color(0xFF8A99A6),
-                                  width: 1))),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(isSubscribed ? '📄 ' : '🔒 ',
-                              style: const TextStyle(fontSize: 14)),
-                          Text(
-                              isSubscribed
-                                  ? 'DOSSIER VAULT 🗞'
-                                  : 'UNLOCK ALL ACCESS (\$9.99/MO)',
-                              style: TextStyle(
-                                  color: isSubscribed
-                                      ? const Color(0xFF080C0E)
-                                      : Colors.white,
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w900,
-                                  letterSpacing: 0.6)),
-                        ],
+                      child: ElevatedButton(
+                        onPressed: () async {
+                          HapticFeedback.mediumImpact();
+                          if (!isSubscribed) {
+                            _showPaywallModal(context, 'UNLOCK DOSSIER VAULT');
+                            return;
+                          }
+
+                          final activeDossier = _resolveActiveMasterDossier();
+                          if (activeDossier != null &&
+                              activeDossier['url']!.isNotEmpty) {
+                            _showDossierOptionsModal(
+                              context: context,
+                              pdfUrl: activeDossier['url']!,
+                              docId: activeDossier['docId']!,
+                              titleLabel: activeDossier['label']!,
+                            );
+                          } else {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                    'Compiling $selectedSport ($selectedMode) Master Dossier PDF...'),
+                                backgroundColor: const Color(0xFFFF5E00),
+                                duration: const Duration(seconds: 3),
+                              ),
+                            );
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: isSubscribed
+                                ? const Color(0xFFD4AF37)
+                                : const Color(0xFF24343B),
+                            padding: const EdgeInsets.symmetric(vertical: 11),
+                            elevation: 0,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                side: BorderSide(
+                                    color: isSubscribed
+                                        ? const Color(0xFFF3E5AB)
+                                        : const Color(0xFF8A99A6),
+                                    width: 1))),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(isSubscribed ? '📄 ' : '🔒 ',
+                                style: const TextStyle(fontSize: 14)),
+                            Text(
+                                isSubscribed
+                                    ? 'DOSSIER VAULT 🗞'
+                                    : 'UNLOCK ALL ACCESS (\$9.99/MO)',
+                                style: TextStyle(
+                                    color: isSubscribed
+                                        ? const Color(0xFF080C0E)
+                                        : Colors.white,
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.6)),
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-                if (isSubscribed) ...[
-                  const SizedBox(height: 4),
-                  const Text(
-                    '💡 Tap for Latest Master PDF. Hold for past Master Slates.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                        color: Color(0xFF8A99A6),
-                        fontSize: 9,
-                        fontStyle: FontStyle.italic),
-                  ),
+                  if (isSubscribed) ...[
+                    const SizedBox(height: 4),
+                    const Text(
+                      '💡 Tap for Active Master PDF. Hold for past Master Slates.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                          color: Color(0xFF8A99A6),
+                          fontSize: 9,
+                          fontStyle: FontStyle.italic),
+                    ),
+                  ],
                 ],
-              ],
-            ),
-            const SizedBox(height: 14),
+              ),
+              const SizedBox(height: 14),
 
-            // GAME CARDS FEED
-            _buildGamesList(games, isSubscribed),
-          ],
+              _buildGamesList(games, isSubscribed),
+            ],
+          ),
         ),
       ),
     );
@@ -3020,7 +3260,7 @@ Get full access: tailzs.com
           {
             'title': 'PLATOON SPLITS & ARSENAL DISRUPTORS',
             'value':
-                '$awayName: ${_formatPlatoon(game['away_platoon_split']?.toString() ?? 'NEUTRAL SPLIT: No Platoon Edge in Ecosystem')}\n$homeName: ⚠️ ${_formatPlatoon(game['home_platoon_split']?.toString() ?? 'YIELDING SIGN: Pitch Mix Suppresses Lineup')}'
+                '$awayName: ${_formatPlatoon(game['away_platoon_split']?.toString() ?? 'VERIFIED MATCHUP')}\n$homeName: ⚠️ ${_formatPlatoon(game['home_platoon_split']?.toString() ?? 'YIELDING SIGN: Pitch Mix Suppresses Lineup')}'
           },
           {
             'title': 'STATISTICAL VARIANCE & MOMENTUM PROFILE',
@@ -3132,6 +3372,8 @@ Get full access: tailzs.com
     List<String> parts = [];
     if (clean.contains('@')) {
       parts = clean.split('@');
+    } else if (clean.contains(' at ')) {
+      parts = clean.split(' at ');
     } else if (clean.contains(' vs ')) {
       parts = clean.split(' vs ');
     } else {
@@ -3166,28 +3408,37 @@ Get full access: tailzs.com
     final String sportKey = activeSport.toLowerCase();
     DossiersRecord? targetDoc;
 
-    for (var record in docs) {
-      final docId = record.reference.id.toLowerCase();
-      if (docId.contains(sportKey)) {
-        if (activeMode == 'AUDIT') {
-          if ((docId.contains('eod') ||
-                  docId.contains('eow') ||
-                  docId.contains('audit')) &&
-              docId.contains('master') &&
-              docId.contains('latest')) {
-            targetDoc = record;
-            break;
-          }
-        } else {
-          if (!docId.contains('eod') &&
-              !docId.contains('eow') &&
-              !docId.contains('audit') &&
-              docId.contains('master') &&
-              docId.contains('latest')) {
-            targetDoc = record;
-            break;
-          }
+    if (selectedDossierDocId != null) {
+      for (var record in docs) {
+        if (record.reference.id.toLowerCase() ==
+            selectedDossierDocId!.toLowerCase()) {
+          targetDoc = record;
+          break;
         }
+      }
+    }
+
+    if (targetDoc == null) {
+      List<DossiersRecord> candidates = docs.where((record) {
+        final docId = record.reference.id.toLowerCase();
+        return docId.contains(sportKey) &&
+            _isDocMatchingMode(docId, activeMode);
+      }).toList();
+
+      candidates.sort((a, b) {
+        final aId = a.reference.id.toLowerCase();
+        final bId = b.reference.id.toLowerCase();
+        final aWeek = int.tryParse(RegExp(r'week_(\d+)').firstMatch(aId)?.group(1) ?? '-1') ?? -1;
+        final bWeek = int.tryParse(RegExp(r'week_(\d+)').firstMatch(bId)?.group(1) ?? '-1') ?? -1;
+        if (aWeek != bWeek) return bWeek.compareTo(aWeek);
+        final aLatest = aId.contains('latest') ? 1 : 0;
+        final bLatest = bId.contains('latest') ? 1 : 0;
+        if (aLatest != bLatest) return bLatest.compareTo(aLatest);
+        return bId.compareTo(aId);
+      });
+
+      if (candidates.isNotEmpty) {
+        targetDoc = candidates.first;
       }
     }
 
@@ -3198,6 +3449,10 @@ Get full access: tailzs.com
     final List<Map<String, dynamic>> parsedGames = [];
     final Set<String> seenCanonicalKeys = {};
     Map<String, dynamic> data = targetDoc.snapshotData;
+
+    final String activeWeekStr = data['week']?.toString() ?? '';
+    final String docFormattedDate = _getFlexibleDeep(
+        data, ['formatted_date', 'slate_date', 'game_date'], '');
 
     List rawGamesList = [];
     if (data.containsKey('games') && data['games'] is List) {
@@ -3222,13 +3477,31 @@ Get full access: tailzs.com
       }
     }
 
-    for (var rawGame in rawGamesList) {
+    final Iterable gamesIterable =
+        (activeSport == 'NCAAF' && rawGamesList.length > 200)
+            ? rawGamesList.reversed
+            : rawGamesList;
+
+    for (var rawGame in gamesIterable) {
       if (rawGame is Map) {
         final gameMap = Map<String, dynamic>.from(rawGame);
+
+        if (activeWeekStr.isNotEmpty && gameMap.containsKey('week')) {
+          final gameWeek = gameMap['week']?.toString() ?? '';
+          if (gameWeek.isNotEmpty && gameWeek != activeWeekStr) {
+            continue;
+          }
+        }
+
         final parsed =
             _parseGameItem(gameMap, activeTier, activeSport, activeMode);
-        final String rawMatchup = parsed['matchup'].toString();
 
+        if ((parsed['game_date']?.toString().isEmpty ?? true) &&
+            docFormattedDate.isNotEmpty) {
+          parsed['game_date'] = docFormattedDate;
+        }
+
+        final String rawMatchup = parsed['matchup'].toString();
         if (_isMetadataKey(rawMatchup) || rawMatchup == 'Matchup TBD') continue;
 
         final String canonicalKey = _getCanonicalMatchupKey(rawMatchup);
@@ -3248,7 +3521,37 @@ Get full access: tailzs.com
   Map<String, dynamic> _parseGameItem(Map<String, dynamic> item,
       String activeTier, String activeSport, String activeMode) {
     String rawMatchup = _getFlexibleDeep(
-        item, ['game_matchup', 'matchup', 'game'], 'Matchup TBD');
+        item,
+        ['game_matchup', 'matchup', 'game', 'event', 'game_name'],
+        '');
+
+    String awayName = _getFlexibleDeep(
+        item, ['away_team', 'away_name', 'away', 'team_away'], '');
+    String homeName = _getFlexibleDeep(
+        item, ['home_team', 'home_name', 'home', 'team_home'], '');
+
+    if (rawMatchup.isEmpty && awayName.isNotEmpty && homeName.isNotEmpty) {
+      rawMatchup = '$awayName @ $homeName';
+    } else if (rawMatchup.isEmpty) {
+      rawMatchup = 'Matchup TBD';
+    }
+
+    if (awayName.isEmpty || homeName.isEmpty) {
+      if (rawMatchup.contains('@')) {
+        final parts = rawMatchup.split('@');
+        awayName = parts[0].trim();
+        homeName = parts[1].trim();
+      } else if (rawMatchup.toLowerCase().contains(' at ')) {
+        final parts = rawMatchup.split(RegExp(r'\s+at\s+', caseSensitive: false));
+        awayName = parts[0].trim();
+        homeName = parts[1].trim();
+      } else if (rawMatchup.toLowerCase().contains(' vs ')) {
+        final parts = rawMatchup.split(RegExp(r'\s+vs\.?\s+', caseSensitive: false));
+        awayName = parts[0].trim();
+        homeName = parts[1].trim();
+      }
+    }
+
     String gameDate = _getFlexibleDeep(
         item,
         [
@@ -3260,18 +3563,6 @@ Get full access: tailzs.com
           'time'
         ],
         '');
-    String awayName = 'Away';
-    String homeName = 'Home';
-
-    if (rawMatchup.contains('@')) {
-      final parts = rawMatchup.split('@');
-      awayName = parts[0].trim();
-      homeName = parts[1].trim();
-    } else if (rawMatchup.contains(' vs ')) {
-      final parts = rawMatchup.split(' vs ');
-      awayName = parts[0].trim();
-      homeName = parts[1].trim();
-    }
 
     dynamic insigniaArray = item['tier2_insignia'];
 
@@ -3904,7 +4195,6 @@ Get full access: tailzs.com
       }
     }
 
-    // PROSPECTIVE MODE PICKS
     Map<String, dynamic> prospectiveMap = item;
 
     String primaryModelWinner = _getFlexibleDeep(
