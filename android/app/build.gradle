@@ -1,3 +1,9 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    id "dev.flutter.flutter-gradle-plugin"
+}
+
 def localProperties = new Properties()
 def localPropertiesFile = rootProject.file('local.properties')
 if (localPropertiesFile.exists()) {
@@ -9,11 +15,7 @@ if (localPropertiesFile.exists()) {
 def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '19'
 def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0.0'
 
-plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    id "dev.flutter.flutter-gradle-plugin"
-}
+
 
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file('key.properties')
@@ -36,7 +38,6 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.tailzs.app"
         applicationId "com.tailzs.app"
         minSdkVersion 21
         targetSdkVersion 35
