@@ -45,15 +45,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
   final Set<String> pinnedGameKeys = {};
 
   /// Collapses spaced-out numbers, signs, and percentage kerning glitches
-  /// e.g. "+ 1 4 . 3 %" -> "+14.3%", "(+ 2 4 . 5 )" -> "(+24.5)"
   String _tighten(dynamic raw) {
     if (raw == null) return '';
     String str = raw.toString();
 
-    // Collapse multiple consecutive spaces to a single space
     str = str.replaceAll(RegExp(r'[ \t]+'), ' ');
 
-    // Collapse spaces between numbers, math symbols, decimals, and percent signs
     for (int i = 0; i < 4; i++) {
       str = str.replaceAllMapped(
         RegExp(r'(?<=[0-9\+\-\.\%\$])\s+(?=[0-9\+\-\.\%\$])'),
@@ -61,7 +58,6 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
       );
     }
 
-    // Collapse space after opening brackets or before closing brackets if adjacent to numbers/symbols
     str = str.replaceAllMapped(
       RegExp(r'([\(\[])\s+([\+\-0-9])'),
       (m) => '${m.group(1)}${m.group(2)}',
@@ -289,6 +285,10 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         Text('📥 ', style: TextStyle(fontSize: 16)),
                         Text(
                           'SHARE VERIFIED RECEIPT',
+                          textScaler: TextScaler.noScaling,
+                          textHeightBehavior: TextHeightBehavior(
+                              leadingDistribution:
+                                  TextLeadingDistribution.even),
                           style: TextStyle(
                             color: Color(0xFF00F5D4),
                             fontSize: 13,
@@ -329,6 +329,10 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           Text('🦊 ', style: TextStyle(fontSize: 14)),
                           Text(
                             'TAILZS QUANT VERIFIED RECEIPT',
+                            textScaler: TextScaler.noScaling,
+                            textHeightBehavior: TextHeightBehavior(
+                                leadingDistribution:
+                                    TextLeadingDistribution.even),
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 12,
@@ -344,6 +348,10 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           const Text('🏆 ', style: TextStyle(fontSize: 13)),
                           Text(
                             '${sport.toUpperCase()} ${tier.toUpperCase()}',
+                            textScaler: TextScaler.noScaling,
+                            textHeightBehavior: const TextHeightBehavior(
+                                leadingDistribution:
+                                    TextLeadingDistribution.even),
                             style: const TextStyle(
                               color: Color(0xFFFFD700),
                               fontSize: 11.5,
@@ -357,30 +365,44 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         const SizedBox(height: 6),
                         Text(
                           '📅 Game Date: $gameDate',
+                          textScaler: TextScaler.noScaling,
+                          textHeightBehavior: const TextHeightBehavior(
+                              leadingDistribution:
+                                  TextLeadingDistribution.even),
                           style: const TextStyle(
                             color: Color(0xFF8A99A6),
                             fontSize: 11.5,
                             fontWeight: FontWeight.bold,
+                            letterSpacing: 0.2,
                           ),
                         ),
                       ],
                       const SizedBox(height: 8),
                       Text(
                         'Matchup: ${_tighten(game['matchup'] ?? '')}',
+                        textScaler: TextScaler.noScaling,
+                        textHeightBehavior: const TextHeightBehavior(
+                            leadingDistribution: TextLeadingDistribution.even),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
+                          letterSpacing: 0.2,
                         ),
                       ),
                       if ((game['score'] ?? '').toString().isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(
                           'Score: ${_tighten(game['score'])}',
+                          textScaler: TextScaler.noScaling,
+                          textHeightBehavior: const TextHeightBehavior(
+                              leadingDistribution:
+                                  TextLeadingDistribution.even),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
+                            letterSpacing: 0.2,
                           ),
                         ),
                       ],
@@ -389,13 +411,22 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         Row(
                           children: [
                             const Text('📊 Outcome: ',
+                                textScaler: TextScaler.noScaling,
+                                textHeightBehavior: TextHeightBehavior(
+                                    leadingDistribution:
+                                        TextLeadingDistribution.even),
                                 style: TextStyle(
                                   color: Color(0xFF8A99A6),
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.2,
                                 )),
                             Text(
                               _tighten(outcomeStatus),
+                              textScaler: TextScaler.noScaling,
+                              textHeightBehavior: const TextHeightBehavior(
+                                  leadingDistribution:
+                                      TextLeadingDistribution.even),
                               style: TextStyle(
                                 color: outcomeStatus.contains('WIN') ||
                                         outcomeStatus.contains('SWEEP HIT')
@@ -437,6 +468,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 6.0),
                           child: RichText(
+                            textScaler: TextScaler.noScaling,
                             text: TextSpan(
                               children: [
                                 TextSpan(
@@ -445,6 +477,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                     color: Color(0xFF8A99A6),
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
+                                    letterSpacing: 0.2,
                                   ),
                                 ),
                                 TextSpan(
@@ -453,6 +486,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                     color: Colors.white,
                                     fontSize: 11.5,
                                     fontWeight: FontWeight.bold,
+                                    letterSpacing: 0.2,
                                   ),
                                 ),
                                 TextSpan(
@@ -463,6 +497,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                         : const Color(0xFFFF3366),
                                     fontSize: 11,
                                     fontWeight: FontWeight.w900,
+                                    letterSpacing: 0.2,
                                   ),
                                 ),
                               ],
@@ -476,15 +511,22 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       ),
                       const Text(
                         'Quant Edge Tracked Live on Tailzs Terminal 🗞',
+                        textScaler: TextScaler.noScaling,
+                        textHeightBehavior: TextHeightBehavior(
+                            leadingDistribution: TextLeadingDistribution.even),
                         style: TextStyle(
                           color: Color(0xFF8A99A6),
                           fontSize: 10.5,
                           fontStyle: FontStyle.italic,
+                          letterSpacing: 0.2,
                         ),
                       ),
                       const SizedBox(height: 3),
                       const Text(
                         'tailzs.app',
+                        textScaler: TextScaler.noScaling,
+                        textHeightBehavior: TextHeightBehavior(
+                            leadingDistribution: TextLeadingDistribution.even),
                         style: TextStyle(
                           color: Color(0xFF00F5D4),
                           fontSize: 10.5,
@@ -516,6 +558,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       color: Colors.white, size: 16),
                   label: const Text(
                     'TAP TO COPY FOR POSTING RESULTS',
+                    textScaler: TextScaler.noScaling,
+                    textHeightBehavior: TextHeightBehavior(
+                        leadingDistribution: TextLeadingDistribution.even),
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 11.5,
@@ -618,10 +663,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
           BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
       child: Text(
         displayLabel,
+        textScaler: TextScaler.noScaling,
+        textHeightBehavior: const TextHeightBehavior(
+            leadingDistribution: TextLeadingDistribution.even),
         style: TextStyle(
           color: text,
           fontSize: 9,
           fontWeight: FontWeight.w800,
+          letterSpacing: 0.3,
           fontFamilyFallback: const [
             'Apple Color Emoji',
             'Noto Color Emoji',
@@ -645,10 +694,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         children: [
           Text(
             label,
+            textScaler: TextScaler.noScaling,
+            textHeightBehavior: const TextHeightBehavior(
+                leadingDistribution: TextLeadingDistribution.even),
             style: const TextStyle(
               color: Color(0xFF00F5D4),
               fontSize: 9,
               fontWeight: FontWeight.w900,
+              letterSpacing: 0.3,
               fontFamilyFallback: [
                 'Apple Color Emoji',
                 'Noto Color Emoji',
@@ -659,12 +712,15 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
           const SizedBox(height: 4),
           Text(
             cleanVal,
+            textScaler: TextScaler.noScaling,
+            textHeightBehavior: const TextHeightBehavior(
+                leadingDistribution: TextLeadingDistribution.even),
             style: const TextStyle(
               color: Color(0xFFE0E0E0),
               fontSize: 11,
               fontWeight: FontWeight.w500,
               height: 1.4,
-              letterSpacing: 0.1,
+              letterSpacing: 0.2,
               fontFamilyFallback: [
                 'Apple Color Emoji',
                 'Noto Color Emoji',
@@ -992,6 +1048,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                 Text(cleanLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
+                    textScaler: TextScaler.noScaling,
+                    textHeightBehavior: const TextHeightBehavior(
+                        leadingDistribution: TextLeadingDistribution.even),
                     style: TextStyle(
                       color: legTitleColor,
                       fontSize: 9,
@@ -1007,11 +1066,15 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                 Text(cleanPick,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    textScaler: TextScaler.noScaling,
+                    textHeightBehavior: const TextHeightBehavior(
+                        leadingDistribution: TextLeadingDistribution.even),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       height: 1.25,
+                      letterSpacing: 0.2,
                       fontFamilyFallback: [
                         'Apple Color Emoji',
                         'Noto Color Emoji',
@@ -1025,6 +1088,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                   Text('Margin: $cleanMargin',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      textScaler: TextScaler.noScaling,
+                      textHeightBehavior: const TextHeightBehavior(
+                          leadingDistribution: TextLeadingDistribution.even),
                       style: const TextStyle(
                         color: Color(0xFF8A99A6),
                         fontSize: 8.5,
@@ -1048,7 +1114,6 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
   Widget _buildGameCard(Map<String, dynamic> game, int index, bool subActive) {
     final mode = widget.selectedMode ?? 'PROSPECTIVE';
     final sport = widget.selectedSport ?? 'NCAAF';
-    final String badgeType = game['badgeType']?.toString() ?? 'PENDING';
     final int legCount = (game['legCount'] as int?) ?? 1;
     final bool isDeepDiveOpen = expandedDeepDives.contains(index);
     final String canonicalKey =
@@ -1060,6 +1125,33 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     final String cleanMatchup = _tighten(
         (game['matchup']?.toString() ?? 'Matchup TBD')
             .replaceAll(RegExp(r'\s+'), ' '));
+
+    // Client-Side Split Decision Intercept
+    int winCount = 0;
+    int lossCount = 0;
+
+    for (int i = 1; i <= legCount; i++) {
+      final String legStatus =
+          game['l${i}_status']?.toString().toUpperCase() ?? '';
+      if (legStatus.contains('WIN') || legStatus.contains('HIT')) {
+        winCount++;
+      } else if (legStatus.contains('LOSS') || legStatus.contains('MISS')) {
+        lossCount++;
+      }
+    }
+
+    String badgeType = game['badgeType']?.toString() ?? 'PENDING';
+
+    // EXPLICIT OVERRIDE: If there is at least one win and at least one loss, it's a split.
+    if (mode == 'AUDIT') {
+      if (winCount > 0 && lossCount > 0) {
+        badgeType = 'SPLIT_DECISION';
+      } else if (lossCount == legCount && legCount > 0) {
+        badgeType = 'SWEEP_LOSS';
+      } else if (winCount == legCount && legCount > 0) {
+        badgeType = 'SWEEP_HIT';
+      }
+    }
 
     Color borderColor = const Color(0xFF24343B);
     Color badgeBg = const Color(0xFF24343B);
@@ -1118,6 +1210,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
             },
             icon: const Icon(Icons.lock, color: Colors.white, size: 13),
             label: const Text('UNLOCK ALL ACCESS • ALL PICKS (\$9.99/MO)',
+                textScaler: TextScaler.noScaling,
+                textHeightBehavior: TextHeightBehavior(
+                    leadingDistribution: TextLeadingDistribution.even),
                 style: TextStyle(
                     color: Colors.white,
                     fontSize: 9.5,
@@ -1176,6 +1271,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                 ),
               ),
               Text((subActive || mode == 'AUDIT') ? '🦊 ' : '🔒 ',
+                  textScaler: TextScaler.noScaling,
                   style: const TextStyle(
                       fontSize: 15,
                       height: 1.0,
@@ -1188,11 +1284,15 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                 child: Text(cleanMatchup,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
+                    textScaler: TextScaler.noScaling,
+                    textHeightBehavior: const TextHeightBehavior(
+                        leadingDistribution: TextLeadingDistribution.even),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12.5,
                       fontWeight: FontWeight.w800,
                       height: 1.25,
+                      letterSpacing: 0.2,
                       fontFamilyFallback: [
                         'Apple Color Emoji',
                         'Noto Color Emoji',
@@ -1237,12 +1337,17 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         const SizedBox(width: 4)
                       ],
                       Text('DEEP DIVE',
+                          textScaler: TextScaler.noScaling,
+                          textHeightBehavior: const TextHeightBehavior(
+                              leadingDistribution:
+                                  TextLeadingDistribution.even),
                           style: TextStyle(
                               color: subActive
                                   ? const Color(0xFF00F5D4)
                                   : Colors.white,
                               fontSize: 9,
-                              fontWeight: FontWeight.w800)),
+                              fontWeight: FontWeight.w800,
+                              letterSpacing: 0.3)),
                       if (subActive) ...[
                         const SizedBox(width: 4),
                         Icon(
@@ -1260,7 +1365,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
           ),
           const SizedBox(height: 10),
 
-          // Status Badge on left + Intrinsic Date & Score on right (Prevents portrait truncation)
+          // Status Badge on left + Intrinsic Date & Score on right
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1277,11 +1382,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                   child: Text(badgeTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
+                      textScaler: TextScaler.noScaling,
+                      textHeightBehavior: const TextHeightBehavior(
+                          leadingDistribution: TextLeadingDistribution.even),
                       style: TextStyle(
                         color: badgeText,
                         fontSize: 9.5,
                         fontWeight: FontWeight.w800,
-                        letterSpacing: 0.3,
+                        letterSpacing: 0.4,
                         fontFamilyFallback: const [
                           'Apple Color Emoji',
                           'Noto Color Emoji',
@@ -1309,10 +1417,15 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           const SizedBox(width: 4),
                           Text(gameDate,
                               maxLines: 1,
+                              textScaler: TextScaler.noScaling,
+                              textHeightBehavior: const TextHeightBehavior(
+                                  leadingDistribution:
+                                      TextLeadingDistribution.even),
                               style: const TextStyle(
                                   color: Color(0xFF8A99A6),
                                   fontSize: 9,
-                                  fontWeight: FontWeight.bold)),
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.2)),
                         ],
                       ),
                     ),
@@ -1332,17 +1445,21 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                               Border.all(color: borderColor.withOpacity(0.6))),
                       child: Text(_tighten(game['score']?.toString() ?? ''),
                           maxLines: 1,
+                          textScaler: TextScaler.noScaling,
+                          textHeightBehavior: const TextHeightBehavior(
+                              leadingDistribution:
+                                  TextLeadingDistribution.even),
                           style: const TextStyle(
                               color: Colors.white,
                               fontSize: 9.5,
-                              fontWeight: FontWeight.bold)),
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.2)),
                     ),
                 ],
               ),
             ],
           ),
 
-          // --- VERIFIED AUDIT RECEIPT ROW (Collision-Proof) ---
           if (mode == 'AUDIT') ...[
             const SizedBox(height: 8),
             Row(
@@ -1361,6 +1478,10 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           'VERIFIED $sport AUDIT RECEIPT',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                          textScaler: TextScaler.noScaling,
+                          textHeightBehavior: const TextHeightBehavior(
+                              leadingDistribution:
+                                  TextLeadingDistribution.even),
                           style: const TextStyle(
                             color: Color(0xFF00F5D4),
                             fontSize: 9.5,
@@ -1393,6 +1514,10 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         SizedBox(width: 4),
                         Text(
                           'SHARE RECEIPT',
+                          textScaler: TextScaler.noScaling,
+                          textHeightBehavior: TextHeightBehavior(
+                              leadingDistribution:
+                                  TextLeadingDistribution.even),
                           style: TextStyle(
                             color: Color(0xFFFF5E00),
                             fontSize: 9,
@@ -1426,10 +1551,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
             (widget.searchQuery ?? '').isNotEmpty
                 ? 'NO GAMES MATCHING "${widget.searchQuery}"'
                 : 'NO GAMES QUEUED FOR ${widget.selectedSport ?? 'NCAAF'}',
+            textScaler: TextScaler.noScaling,
+            textHeightBehavior: const TextHeightBehavior(
+                leadingDistribution: TextLeadingDistribution.even),
             style: const TextStyle(
                 color: Color(0xFF8A99A6),
                 fontSize: 11,
-                fontWeight: FontWeight.bold)),
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.2)),
       );
     }
 
@@ -1445,8 +1574,8 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     gamesList.sort((a, b) {
       final keyA = _getCanonicalMatchupKey(a['matchup']?.toString() ?? '');
       final keyB = _getCanonicalMatchupKey(b['matchup']?.toString() ?? '');
-      final isPinnedA = pinnedGameKeys.contains(keyA);
-      final isPinnedB = pinnedGameKeys.contains(keyB);
+      final bool isPinnedA = pinnedGameKeys.contains(keyA);
+      final bool isPinnedB = pinnedGameKeys.contains(keyB);
       if (isPinnedA && !isPinnedB) return -1;
       if (!isPinnedA && isPinnedB) return 1;
       return 0;
@@ -1461,10 +1590,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         padding: const EdgeInsets.all(24),
         alignment: Alignment.center,
         child: Text('NO GAMES MATCHING "$searchQ"',
+            textScaler: TextScaler.noScaling,
+            textHeightBehavior: const TextHeightBehavior(
+                leadingDistribution: TextLeadingDistribution.even),
             style: const TextStyle(
                 color: Color(0xFF8A99A6),
                 fontSize: 11,
-                fontWeight: FontWeight.bold)),
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.2)),
       );
     }
 

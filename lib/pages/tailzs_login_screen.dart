@@ -1252,11 +1252,11 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                       ],
                     ),
 
-                    // Version 1.0.0+22 Footer
+                    // Version 1.0.0+23 Footer
                     const SizedBox(height: 24),
                     const Center(
                       child: Text(
-                        'v1.0.0+22',
+                        'v1.0.0+23',
                         style: TextStyle(
                           color: Color(0xFF42545C),
                           fontSize: 10,
