@@ -1,3 +1,14 @@
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withReader('UTF-8') { reader ->
+        localProperties.load(reader)
+    }
+}
+
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '19'
+def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0.0'
+
 plugins {
     id "com.android.application"
     id "kotlin-android"
@@ -29,8 +40,8 @@ android {
         applicationId "com.tailzs.app"
         minSdkVersion 21
         targetSdkVersion 35
-        versionCode flutterVersionCode.toInteger()
-        versionName flutterVersionName
+        versionCode 19
+        versionName "1.0.0"
         multiDexEnabled true
     }
 
