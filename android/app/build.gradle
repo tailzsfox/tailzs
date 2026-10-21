@@ -26,16 +26,22 @@ android {
 
     defaultConfig {
         applicationId "com.tailzs.app"
+        applicationId "com.tailzs.app"
         minSdkVersion 21
-        targetSdkVersion 34
-        versionCode 18
-        versionName "1.0.0"
+        targetSdkVersion 35
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
         multiDexEnabled true
     }
 
     signingConfigs {
         release {
-            if (keystorePropertiesFile.exists() && file(keystoreProperties['storeFile'] ?: "").exists()) {
+            if (System.getenv()["CM_KEYSTORE_PATH"] ?: System.getenv()["CM_KEYSTORE"]) {
+                storeFile file(System.getenv()["CM_KEYSTORE_PATH"] ?: System.getenv()["CM_KEYSTORE"])
+                storePassword System.getenv()["CM_KEYSTORE_PASSWORD"]
+                keyAlias System.getenv()["CM_KEY_ALIAS"]
+                keyPassword System.getenv()["CM_KEY_PASSWORD"]
+            } else if (keystorePropertiesFile.exists() && file(keystoreProperties['storeFile'] ?: "").exists()) {
                 keyAlias keystoreProperties['keyAlias']
                 keyPassword keystoreProperties['keyPassword']
                 storeFile file(keystoreProperties['storeFile'])

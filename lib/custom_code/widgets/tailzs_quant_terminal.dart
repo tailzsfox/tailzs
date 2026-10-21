@@ -9,6 +9,9 @@ import 'package:flutter/material.dart' hide RepeatMode;
 // Begin custom widget code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
+import '/custom_code/widgets/index.dart';
+import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform, TargetPlatform;
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:async';
 import 'package:flutter/services.dart';
 import 'dart:ui';

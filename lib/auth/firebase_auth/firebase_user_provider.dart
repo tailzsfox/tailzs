@@ -24,11 +24,9 @@ class TailzsFirebaseUser extends BaseAuthUser {
 
   @override
   Future? updateEmail(String email) async {
-    try {
-      await user?.updateEmail(email);
-    } catch (_) {
-      await user?.verifyBeforeUpdateEmail(email);
-    }
+    final targetUser = user;
+    if (targetUser == null) return;
+    await targetUser.verifyBeforeUpdateEmail(email);
   }
 
   @override
@@ -69,6 +67,7 @@ Stream<BaseAuthUser> tailzsFirebaseUserStream() => FirebaseAuth.instance
         .map<BaseAuthUser>(
       (user) {
         currentUser = TailzsFirebaseUser(user);
+
         return currentUser!;
       },
     );
