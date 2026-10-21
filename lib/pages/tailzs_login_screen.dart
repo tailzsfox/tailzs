@@ -5,6 +5,7 @@ import '/flutter_flow/ff_builtin_enums.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
 import '/custom_code/widgets/index.dart'; // Imports other custom widgets
+import '/flutter_flow/custom_functions.dart'; // Imports custom functions
 import 'package:flutter/material.dart' hide RepeatMode;
 // Begin custom widget code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
@@ -55,20 +56,139 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
   @override
   void initState() {
     super.initState();
-    _checkExistingSession();
+    _loadRememberedCredentials();
+    _initAndCheckSession();
+  }
 
-    // Listen for background subscription updates (e.g., from Restore Purchases)
-    Purchases.addCustomerInfoUpdateListener((info) {
-      if (mounted) {
-        final entitlement = info.entitlements.all['tailzs'];
-        final bool isSubbed = (entitlement != null && entitlement.isActive) ||
-            info.entitlements.active.isNotEmpty;
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    if (_customerInfoListener != null && !kIsWeb) {
+      Purchases.removeCustomerInfoUpdateListener(_customerInfoListener!);
+    }
+    super.dispose();
+  }
 
-        if (isSubbed) {
-          _navigateWithFallback();
+  Future<void> _loadRememberedCredentials() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final bool remember = prefs.getBool('tailzs_remember_me') ?? false;
+      final String savedEmail = prefs.getString('tailzs_remember_email') ?? '';
+      if (remember && savedEmail.isNotEmpty) {
+        setState(() {
+          _rememberMe = true;
+          _emailController.text = savedEmail;
+        });
+      }
+    } catch (e) {
+      debugPrint('Remember Me load notice: $e');
+    }
+  }
+
+  Future<void> _ensureRevenueCatConfigured() async {
+    if (kIsWeb) return;
+    try {
+      final isConfigured = await Purchases.isConfigured;
+      if (!isConfigured) {
+        PurchasesConfiguration configuration;
+        if (_isAndroid) {
+          configuration =
+              PurchasesConfiguration("goog_WarGoEiwwpsSXCmpsGdIKNtxayq");
+        } else if (_isIOS) {
+          configuration =
+              PurchasesConfiguration("appl_BtLDOTxBkRDYTAvOnGCAkDUXBxo");
+        } else {
+          return;
+        }
+        await Purchases.configure(configuration);
+      }
+    } catch (e) {
+      debugPrint('RC Configuration guard notice: $e');
+    }
+  }
+
+  // --- HARDWARE DEVICE REGISTRATION ENFORCING MAXIMUM 3 CONCURRENT DEVICES ---
+  Future<void> _syncDeviceRegistration(
+      String uid, SharedPreferences prefs) async {
+    try {
+      String? deviceId = prefs.getString('tailzs_device_id');
+      if (deviceId == null) {
+        deviceId =
+            '${DateTime.now().millisecondsSinceEpoch}_${math.Random().nextInt(999999)}';
+        await prefs.setString('tailzs_device_id', deviceId);
+      }
+
+      final userRef = FirebaseFirestore.instance.collection('users').doc(uid);
+      final doc = await userRef.get();
+
+      List<String> activeDevices = [];
+      if (doc.exists &&
+          doc.data() != null &&
+          doc.data()!.containsKey('active_devices')) {
+        activeDevices = List<String>.from(doc.data()!['active_devices']);
+      }
+
+      if (!activeDevices.contains(deviceId)) {
+        // Enforce maximum 3 devices: evicts the oldest device if a 4th logs in
+        if (activeDevices.length >= 3) {
+          activeDevices.removeAt(0);
+        }
+        activeDevices.add(deviceId);
+        await userRef.set({
+          'active_devices': activeDevices,
+          'last_login': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (dbError) {
+      debugPrint('Device tracking notice: $dbError');
+    }
+  }
+
+  Future<void> _initAndCheckSession() async {
+    await _ensureRevenueCatConfigured();
+
+    if (!kIsWeb) {
+      _customerInfoListener = (info) {
+        if (mounted) {
+          final currentUser = FirebaseAuth.instance.currentUser;
+          if (currentUser != null && !currentUser.isAnonymous) {
+            final entitlement = info.entitlements.all['tailzs'];
+            final bool isSubbed =
+                (entitlement != null && entitlement.isActive) ||
+                    info.entitlements.active.isNotEmpty;
+
+            if (isSubbed) {
+              _dismissOverlayOrNavigate();
+            }
+          }
+        }
+      };
+      Purchases.addCustomerInfoUpdateListener(_customerInfoListener!);
+    }
+
+    try {
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null && !currentUser.isAnonymous) {
+        if (!kIsWeb) {
+          try {
+            if (await Purchases.isConfigured) {
+              await Purchases.logIn(currentUser.uid);
+            }
+          } catch (_) {}
+        }
+
+        final prefs = await SharedPreferences.getInstance();
+        await _syncDeviceRegistration(currentUser.uid, prefs);
+
+        if (mounted) {
+          setState(() => _loginSucceeded = true);
+          _dismissOverlayOrNavigate();
         }
       }
-    });
+    } catch (e) {
+      debugPrint('Session check notice: $e');
+    }
   }
 
   void _dismissOverlayOrNavigate() {
@@ -119,72 +239,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
         context.go(path);
         return;
       } catch (_) {}
-    }
-  }
-
-
-  Future<void> _checkExistingSession() async {
-    try {
-      final currentUser = FirebaseAuth.instance.currentUser;
-      if (currentUser != null) {
-        // Sync RevenueCat with the authenticated user ID on auto-login
-        await Purchases.logIn(currentUser.uid);
-
-        bool isSubbed = false;
-
-        final userEmail = currentUser.email?.toLowerCase() ?? '';
-        if (userEmail.contains('reviewer') ||
-            userEmail.contains('tailzs.com')) {
-          isSubbed = true;
-        } else {
-          final CustomerInfo info = await Purchases.getCustomerInfo();
-          final entitlement = info.entitlements.all['tailzs'];
-          isSubbed = (entitlement != null && entitlement.isActive) ||
-              info.entitlements.active.isNotEmpty;
-        }
-
-        if (isSubbed && mounted) {
-          _navigateWithFallback();
-        }
-      }
-    } catch (e) {
-      debugPrint('Session check error: $e');
-    }
-  }
-
-  @override
-  void dispose() {
-    _emailController.dispose();
-    _passwordController.dispose();
-    // Clean up listener to prevent memory leaks
-    Purchases.removeCustomerInfoUpdateListener((_) {});
-    super.dispose();
-  }
-    Future<void> _ensureRevenueCatConfigured() async {
-    try {
-      final isConfigured = await Purchases.isConfigured;
-      if (!isConfigured) {
-        final apiKey = _isIOS
-            ? 'appl_BtLDOTxBkRDYTAvOnGCAkDUXBxo'
-            : 'goog_WarGoEiwwpsSXCmpsGdIKNtxayq';
-        await Purchases.configure(PurchasesConfiguration(apiKey));
-      }
-    } catch (e) {
-      debugPrint('Error ensuring RevenueCat is configured: $e');
-    }
-  }
-
-  Future<void> _syncDeviceRegistration(String uid, SharedPreferences prefs) async {
-    try {
-      final deviceId = prefs.getString('tailzs_device_id') ?? '';
-      if (deviceId.isNotEmpty) {
-        await FirebaseFirestore.instance.collection('users').doc(uid).set({
-          'lastActiveDevice': deviceId,
-          'lastLoginAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-    } catch (e) {
-      debugPrint('Error syncing device registration: $e');
     }
   }
 
