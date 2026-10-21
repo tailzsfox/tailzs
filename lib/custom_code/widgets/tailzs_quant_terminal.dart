@@ -1670,24 +1670,34 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                 auditMap, ['sweep_status', '3leg_parlay_outcome'], '')
             .toUpperCase();
 
-        if ((l1Status == 'WIN' && l2Status == 'WIN' && l3Status == 'WIN') ||
+        final int winCount = (l1Status == 'WIN' ? 1 : 0) +
+            (l2Status == 'WIN' ? 1 : 0) +
+            (l3Status == 'WIN' ? 1 : 0);
+        final int lossCount = (l1Status == 'LOSS' ? 1 : 0) +
+            (l2Status == 'LOSS' ? 1 : 0) +
+            (l3Status == 'LOSS' ? 1 : 0);
+        final int pendingCount = (l1Status == 'PENDING' ? 1 : 0) +
+            (l2Status == 'PENDING' ? 1 : 0) +
+            (l3Status == 'PENDING' ? 1 : 0);
+
+        if (winCount == 3 ||
             (rawSweep.contains('SWEEP') &&
                 !rawSweep.contains('MISS') &&
-                !rawSweep.contains('LOSS')) ||
+                !rawSweep.contains('LOSS') &&
+                lossCount == 0) ||
             rawSweep.contains('HIT') ||
             rawSweep.contains('🧹')) {
           badgeType = 'SWEEP_HIT';
-        } else if ((l1Status == 'LOSS' &&
-                l2Status == 'LOSS' &&
-                l3Status == 'LOSS') ||
-            rawSweep.contains('MISS') ||
-            rawSweep.contains('0-3') ||
-            rawSweep.contains('0 - 3')) {
-          badgeType = 'SWEEP_LOSS';
-        } else if (l1Status == 'PENDING' ||
-            l2Status == 'PENDING' ||
-            l3Status == 'PENDING') {
+        } else if (pendingCount > 0) {
           badgeType = 'PENDING';
+        } else if (winCount > 0 && lossCount > 0) {
+          badgeType = 'SPLIT_DECISION';
+        } else if (lossCount == 3 ||
+            (winCount == 0 &&
+                (rawSweep.contains('MISS') ||
+                    rawSweep.contains('0-3') ||
+                    rawSweep.contains('0 - 3')))) {
+          badgeType = 'SWEEP_LOSS';
         } else {
           badgeType = 'SPLIT_DECISION';
         }
