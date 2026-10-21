@@ -160,6 +160,34 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
     Purchases.removeCustomerInfoUpdateListener((_) {});
     super.dispose();
   }
+    Future<void> _ensureRevenueCatConfigured() async {
+    try {
+      final isConfigured = await Purchases.isConfigured;
+      if (!isConfigured) {
+        final apiKey = _isIOS
+            ? 'appl_BtLDOTxBkRDYTAvOnGCAkDUXBxo'
+            : 'goog_WarGoEiwwpsSXCmpsGdIKNtxayq';
+        await Purchases.configure(PurchasesConfiguration(apiKey));
+      }
+    } catch (e) {
+      debugPrint('Error ensuring RevenueCat is configured: $e');
+    }
+  }
+
+  Future<void> _syncDeviceRegistration(String uid, SharedPreferences prefs) async {
+    try {
+      final deviceId = prefs.getString('tailzs_device_id') ?? '';
+      if (deviceId.isNotEmpty) {
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'lastActiveDevice': deviceId,
+          'lastLoginAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+      }
+    } catch (e) {
+      debugPrint('Error syncing device registration: $e');
+    }
+  }
+
   Future<void> _handleForgotPassword() async {
     final email = _emailController.text.trim();
 
