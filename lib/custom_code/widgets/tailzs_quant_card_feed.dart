@@ -9,8 +9,6 @@ import 'package:flutter/material.dart' hide RepeatMode;
 // Begin custom widget code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
-import '/custom_code/widgets/index.dart';
-
 import 'dart:ui';
 import 'package:flutter/services.dart';
 
@@ -46,6 +44,36 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
   final Set<int> expandedDeepDives = {};
   final Set<String> pinnedGameKeys = {};
 
+  /// Collapses spaced-out numbers, signs, and percentage kerning glitches
+  /// e.g. "+ 1 4 . 3 %" -> "+14.3%", "(+ 2 4 . 5 )" -> "(+24.5)"
+  String _tighten(dynamic raw) {
+    if (raw == null) return '';
+    String str = raw.toString();
+
+    // Collapse multiple consecutive spaces to a single space
+    str = str.replaceAll(RegExp(r'[ \t]+'), ' ');
+
+    // Collapse spaces between numbers, math symbols, decimals, and percent signs
+    for (int i = 0; i < 4; i++) {
+      str = str.replaceAllMapped(
+        RegExp(r'(?<=[0-9\+\-\.\%\$])\s+(?=[0-9\+\-\.\%\$])'),
+        (m) => '',
+      );
+    }
+
+    // Collapse space after opening brackets or before closing brackets if adjacent to numbers/symbols
+    str = str.replaceAllMapped(
+      RegExp(r'([\(\[])\s+([\+\-0-9])'),
+      (m) => '${m.group(1)}${m.group(2)}',
+    );
+    str = str.replaceAllMapped(
+      RegExp(r'([0-9\+\-\.\%])\s+([\)\],])'),
+      (m) => '${m.group(1)}${m.group(2)}',
+    );
+
+    return str.trim();
+  }
+
   Future<void> _triggerElectricHapticBuzz() async {
     try {
       await HapticFeedback.heavyImpact();
@@ -76,7 +104,6 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
       final normalizedTarget =
           cand.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
 
-      // Specifically target ml_projector_winner inside arrays first
       if (normalizedTarget == 'mlprojectorwinner' ||
           normalizedTarget == 'tier2pick') {
         if (rootMap.containsKey('tier2_insignia') &&
@@ -186,7 +213,6 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     return true;
   }
 
-  // --- COMPILES OFFICIAL RECEIPT TEXT WITH DATE & tailzs.app ---
   String _generateReceiptText(Map<String, dynamic> game, String sport,
       String tier, int legCount, String outcomeStatus) {
     final buffer = StringBuffer();
@@ -198,15 +224,15 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
       buffer.writeln('📅 Game Date: $gameDate');
     }
 
-    buffer.writeln('Matchup: ${game['matchup'] ?? ''}');
+    buffer.writeln('Matchup: ${_tighten(game['matchup'] ?? '')}');
 
-    final score = (game['score'] ?? '').toString();
+    final score = _tighten(game['score'] ?? '');
     if (score.isNotEmpty) {
       buffer.writeln('Score: $score');
     }
 
     if (outcomeStatus.isNotEmpty) {
-      buffer.writeln('📊 Outcome: $outcomeStatus');
+      buffer.writeln('📊 Outcome: ${_tighten(outcomeStatus)}');
     }
     buffer.writeln();
 
@@ -214,14 +240,13 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
       final label = game['l${i}_label']?.toString() ?? 'LEG $i';
       String pick = game['l${i}_pick']?.toString() ?? 'TBD';
 
-      // Clean "OPTION X" generic text
       pick = pick
           .replaceAll(
               RegExp(r'OPTION\s*\d+\s*PICK:', caseSensitive: false), 'PICK:')
           .trim();
 
       final status = game['l${i}_status']?.toString().toUpperCase() ?? '';
-      buffer.writeln('• $label: $pick [$status]');
+      buffer.writeln('• $label: ${_tighten(pick)} [${_tighten(status)}]');
     }
 
     buffer.writeln();
@@ -341,7 +366,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       ],
                       const SizedBox(height: 8),
                       Text(
-                        'Matchup: ${game['matchup'] ?? ''}',
+                        'Matchup: ${_tighten(game['matchup'] ?? '')}',
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
@@ -351,7 +376,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       if ((game['score'] ?? '').toString().isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(
-                          'Score: ${game['score']}',
+                          'Score: ${_tighten(game['score'])}',
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
@@ -370,7 +395,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                   fontWeight: FontWeight.w700,
                                 )),
                             Text(
-                              outcomeStatus,
+                              _tighten(outcomeStatus),
                               style: TextStyle(
                                 color: outcomeStatus.contains('WIN') ||
                                         outcomeStatus.contains('SWEEP HIT')
@@ -423,7 +448,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                   ),
                                 ),
                                 TextSpan(
-                                  text: '$pick ',
+                                  text: '${_tighten(pick)} ',
                                   style: const TextStyle(
                                     color: Colors.white,
                                     fontSize: 11.5,
@@ -431,7 +456,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                   ),
                                 ),
                                 TextSpan(
-                                  text: '[$status]',
+                                  text: '[${_tighten(status)}]',
                                   style: TextStyle(
                                     color: isWin
                                         ? const Color(0xFF00E676)
@@ -608,6 +633,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
   }
 
   Widget _buildDiveBox(String label, String value) {
+    final cleanVal = _tighten(value);
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
@@ -632,12 +658,13 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
           ),
           const SizedBox(height: 4),
           Text(
-            value,
+            cleanVal,
             style: const TextStyle(
               color: Color(0xFFE0E0E0),
               fontSize: 11,
               fontWeight: FontWeight.w500,
               height: 1.4,
+              letterSpacing: 0.1,
               fontFamilyFallback: [
                 'Apple Color Emoji',
                 'Noto Color Emoji',
@@ -914,11 +941,21 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
   Widget _buildLegsGrid(Map<String, dynamic> game, int legCount, bool subActive,
       bool isMixMatch, String activeMode) {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(legCount, (i) {
         final int legNum = i + 1;
-        final String marginStr = (game['l${legNum}_margin'] ?? '').toString();
+        final String rawMargin = (game['l${legNum}_margin'] ?? '').toString();
+        final String cleanMargin = _tighten(rawMargin);
+
         final String statusStr =
             game['l${legNum}_status']?.toString().toUpperCase() ?? 'PENDING';
+
+        final String rawLabel =
+            game['l${legNum}_label']?.toString() ?? 'LEG $legNum';
+        final String cleanLabel = _tighten(rawLabel);
+
+        final String rawPick = game['l${legNum}_pick']?.toString() ?? 'TBD';
+        final String cleanPick = _tighten(rawPick);
 
         Color legBorderColor = const Color(0xFF24343B);
         Color legTitleColor = const Color(0xFF00F5D4);
@@ -944,7 +981,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         return Expanded(
           child: Container(
             margin: EdgeInsets.only(right: i < legCount - 1 ? 6 : 0),
-            padding: const EdgeInsets.all(8),
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             decoration: BoxDecoration(
                 color: const Color(0xFF0B1114),
                 borderRadius: BorderRadius.circular(10),
@@ -952,11 +989,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(game['l${legNum}_label']?.toString() ?? 'LEG $legNum',
+                Text(cleanLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                       color: legTitleColor,
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
+                      letterSpacing: 0.3,
                       fontFamilyFallback: const [
                         'Apple Color Emoji',
                         'Noto Color Emoji',
@@ -964,11 +1004,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       ],
                     )),
                 const SizedBox(height: 4),
-                Text(game['l${legNum}_pick']?.toString() ?? 'TBD',
+                Text(cleanPick,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
+                      height: 1.25,
                       fontFamilyFallback: [
                         'Apple Color Emoji',
                         'Noto Color Emoji',
@@ -977,13 +1020,16 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                     )),
                 const SizedBox(height: 6),
                 _buildStatusPill(statusStr),
-                if (marginStr.isNotEmpty && marginStr != 'null') ...[
+                if (cleanMargin.isNotEmpty && cleanMargin != 'null') ...[
                   const SizedBox(height: 6),
-                  Text('Margin: $marginStr',
+                  Text('Margin: $cleanMargin',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
                         color: Color(0xFF8A99A6),
                         fontSize: 8.5,
                         fontWeight: FontWeight.bold,
+                        letterSpacing: 0.2,
                         fontFamilyFallback: [
                           'Apple Color Emoji',
                           'Noto Color Emoji',
@@ -1010,6 +1056,10 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     final bool isPinned = pinnedGameKeys.contains(canonicalKey);
     final bool isMixMatch = (game['isMixMatch'] as bool?) ?? false;
     final String gameDate = (game['game_date'] ?? '').toString().trim();
+
+    final String cleanMatchup = _tighten(
+        (game['matchup']?.toString() ?? 'Matchup TBD')
+            .replaceAll(RegExp(r'\s+'), ' '));
 
     Color borderColor = const Color(0xFF24343B);
     Color badgeBg = const Color(0xFF24343B);
@@ -1135,13 +1185,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         'Segoe UI Emoji'
                       ])),
               Expanded(
-                child: Text(game['matchup']?.toString() ?? 'Matchup TBD',
+                child: Text(cleanMatchup,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       color: Colors.white,
-                      fontSize: 13,
+                      fontSize: 12.5,
                       fontWeight: FontWeight.w800,
+                      height: 1.25,
                       fontFamilyFallback: [
                         'Apple Color Emoji',
                         'Noto Color Emoji',
@@ -1209,6 +1260,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
           ),
           const SizedBox(height: 10),
 
+          // Status Badge on left + Intrinsic Date & Score on right (Prevents portrait truncation)
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1217,7 +1269,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                 child: Container(
                   margin: const EdgeInsets.only(right: 6),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
                   decoration: BoxDecoration(
                       color: badgeBg,
                       borderRadius: BorderRadius.circular(5),
@@ -1227,8 +1279,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                         color: badgeText,
-                        fontSize: 10,
+                        fontSize: 9.5,
                         fontWeight: FontWeight.w800,
+                        letterSpacing: 0.3,
                         fontFamilyFallback: const [
                           'Apple Color Emoji',
                           'Noto Color Emoji',
@@ -1237,90 +1290,89 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       )),
                 ),
               ),
-              Flexible(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (gameDate.isNotEmpty && gameDate != 'TBA') ...[
-                      Flexible(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                              color: const Color(0xFF0B1114),
-                              borderRadius: BorderRadius.circular(5),
-                              border:
-                                  Border.all(color: const Color(0xFF24343B))),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const Icon(Icons.calendar_today,
-                                  color: Color(0xFF8A99A6), size: 9),
-                              const SizedBox(width: 4),
-                              Flexible(
-                                  child: Text(gameDate,
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          color: Color(0xFF8A99A6),
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.bold))),
-                            ],
-                          ),
-                        ),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (gameDate.isNotEmpty && gameDate != 'TBA') ...[
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3.5),
+                      decoration: BoxDecoration(
+                          color: const Color(0xFF0B1114),
+                          borderRadius: BorderRadius.circular(5),
+                          border: Border.all(color: const Color(0xFF24343B))),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.calendar_today,
+                              color: Color(0xFF8A99A6), size: 9),
+                          const SizedBox(width: 4),
+                          Text(gameDate,
+                              maxLines: 1,
+                              style: const TextStyle(
+                                  color: Color(0xFF8A99A6),
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold)),
+                        ],
                       ),
-                      if (mode == 'AUDIT' &&
-                          (game['score'] ?? '').toString().isNotEmpty)
-                        const SizedBox(width: 4),
-                    ],
+                    ),
                     if (mode == 'AUDIT' &&
                         (game['score'] ?? '').toString().isNotEmpty)
-                      Flexible(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 6, vertical: 3),
-                          decoration: BoxDecoration(
-                              color: const Color(0xFF0B1114),
-                              borderRadius: BorderRadius.circular(5),
-                              border: Border.all(
-                                  color: borderColor.withOpacity(0.6))),
-                          child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              child: Text(game['score']?.toString() ?? '',
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold))),
-                        ),
-                      ),
+                      const SizedBox(width: 5),
                   ],
-                ),
+                  if (mode == 'AUDIT' &&
+                      (game['score'] ?? '').toString().isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 3.5),
+                      decoration: BoxDecoration(
+                          color: const Color(0xFF0B1114),
+                          borderRadius: BorderRadius.circular(5),
+                          border:
+                              Border.all(color: borderColor.withOpacity(0.6))),
+                      child: Text(_tighten(game['score']?.toString() ?? ''),
+                          maxLines: 1,
+                          style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.bold)),
+                    ),
+                ],
               ),
             ],
           ),
 
-          // --- VERIFIED AUDIT RECEIPT ROW ---
+          // --- VERIFIED AUDIT RECEIPT ROW (Collision-Proof) ---
           if (mode == 'AUDIT') ...[
             const SizedBox(height: 8),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                Row(
-                  children: [
-                    const Icon(Icons.verified,
-                        color: Color(0xFF00F5D4), size: 14),
-                    const SizedBox(width: 5),
-                    Text(
-                      'VERIFIED $sport AUDIT RECEIPT',
-                      style: const TextStyle(
-                        color: Color(0xFF00F5D4),
-                        fontSize: 9.5,
-                        fontWeight: FontWeight.w900,
-                        letterSpacing: 0.5,
+                Expanded(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.verified,
+                          color: Color(0xFF00F5D4), size: 13),
+                      const SizedBox(width: 5),
+                      Flexible(
+                        child: Text(
+                          'VERIFIED $sport AUDIT RECEIPT',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFF00F5D4),
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
+                const SizedBox(width: 8),
                 InkWell(
                   onTap: () =>
                       _showShareReceiptModal(context, game, badgeTitle),
@@ -1337,13 +1389,13 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: const [
-                        Icon(Icons.share, color: Color(0xFFFF5E00), size: 12),
+                        Icon(Icons.share, color: Color(0xFFFF5E00), size: 11),
                         SizedBox(width: 4),
                         Text(
                           'SHARE RECEIPT',
                           style: TextStyle(
                             color: Color(0xFFFF5E00),
-                            fontSize: 9.5,
+                            fontSize: 9,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.4,
                           ),

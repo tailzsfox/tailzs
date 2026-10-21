@@ -52,6 +52,11 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
   bool get _isAndroid =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
+  bool get _isUserLoggedIn {
+    final user = FirebaseAuth.instance.currentUser;
+    return user != null && !user.isAnonymous;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -107,7 +112,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
     }
   }
 
-  // --- HARDWARE DEVICE REGISTRATION ENFORCING MAXIMUM 3 CONCURRENT DEVICES ---
   Future<void> _syncDeviceRegistration(
       String uid, SharedPreferences prefs) async {
     try {
@@ -129,7 +133,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
       }
 
       if (!activeDevices.contains(deviceId)) {
-        // Enforce maximum 3 devices: evicts the oldest device if a 4th logs in
         if (activeDevices.length >= 3) {
           activeDevices.removeAt(0);
         }
@@ -157,8 +160,8 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                 (entitlement != null && entitlement.isActive) ||
                     info.entitlements.active.isNotEmpty;
 
-            if (isSubbed) {
-              _dismissOverlayOrNavigate();
+            if (isSubbed && mounted) {
+              setState(() => _loginSucceeded = true);
             }
           }
         }
@@ -181,8 +184,12 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
         await _syncDeviceRegistration(currentUser.uid, prefs);
 
         if (mounted) {
-          setState(() => _loginSucceeded = true);
-          _dismissOverlayOrNavigate();
+          setState(() {
+            _loginSucceeded = true;
+            if (_emailController.text.isEmpty && currentUser.email != null) {
+              _emailController.text = currentUser.email!;
+            }
+          });
         }
       }
     } catch (e) {
@@ -311,6 +318,9 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
         await prefs.setBool('tailzs_remember_me', false);
       }
 
+      // Clear freemium bypass flag upon deliberate user login
+      await prefs.setBool('tailzs_freemium_mode', false);
+
       if (FirebaseAuth.instance.currentUser != null &&
           FirebaseAuth.instance.currentUser!.isAnonymous) {
         await FirebaseAuth.instance.signOut();
@@ -343,10 +353,9 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
 
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text(
-                '✓ Access Granted! Tap ‹ in the top-left corner to enter.'),
+            content: Text('✓ Access Granted! Returning to Terminal...'),
             backgroundColor: Color(0xFF00F5D4),
-            duration: Duration(seconds: 4),
+            duration: Duration(seconds: 2),
           ),
         );
 
@@ -373,6 +382,235 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
             content: Text('Sign-in Error: ${e.toString()}'),
             backgroundColor: const Color(0xFFFF3366),
             duration: const Duration(seconds: 3),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleLogOut() async {
+    setState(() => _isLoading = true);
+    HapticFeedback.mediumImpact();
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (!_rememberMe) {
+        await prefs.remove('tailzs_remember_email');
+        await prefs.setBool('tailzs_remember_me', false);
+      }
+
+      // Enforce freemium flag state
+      await prefs.setBool('tailzs_freemium_mode', true);
+
+      if (!kIsWeb) {
+        try {
+          if (await Purchases.isConfigured) {
+            await Purchases.logOut();
+          }
+        } catch (e) {
+          debugPrint('RC logout notice: $e');
+        }
+      }
+
+      await FirebaseAuth.instance.signOut();
+
+      try {
+        await FirebaseAuth.instance.signInAnonymously();
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() {
+          _loginSucceeded = false;
+          if (!_rememberMe) _emailController.clear();
+          _passwordController.clear();
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Logged out. Switched to Free Freemium Terminal.'),
+            backgroundColor: Color(0xFF00F5D4),
+            duration: Duration(seconds: 3),
+          ),
+        );
+
+        await Future.delayed(const Duration(milliseconds: 250));
+        _dismissOverlayOrNavigate();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Logout Error: $e'),
+            backgroundColor: const Color(0xFFFF3366),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  Future<void> _handleDeleteAccount() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null || currentUser.isAnonymous) return;
+
+    final bool? confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF182226),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFFFF3366), width: 1.5),
+        ),
+        title: Row(
+          children: const [
+            Icon(Icons.warning_amber_rounded,
+                color: Color(0xFFFF3366), size: 24),
+            SizedBox(width: 8),
+            Text(
+              'Delete Account',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: const [
+            Text(
+              'Are you sure you want to permanently delete your Tailzs account?',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            SizedBox(height: 10),
+            Text(
+              '• All saved preferences, data, and device authorizations will be permanently removed.\n'
+              '• This action is permanent and cannot be reversed.\n\n'
+              '⚠️ NOTE: Apple and Google manage subscriptions directly. Deleting your account does not cancel recurring store billing. Please cancel any active renewal in your device Account Settings.',
+              style: TextStyle(
+                color: Color(0xFF8A99A6),
+                fontSize: 11,
+                height: 1.4,
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text(
+              'CANCEL',
+              style: TextStyle(
+                color: Color(0xFF8A99A6),
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFFF3366),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8)),
+            ),
+            child: const Text(
+              'DELETE PERMANENTLY',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+                fontSize: 11,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirm != true) return;
+
+    setState(() => _isLoading = true);
+    HapticFeedback.heavyImpact();
+
+    try {
+      final uid = currentUser.uid;
+
+      try {
+        await FirebaseFirestore.instance.collection('users').doc(uid).delete();
+      } catch (e) {
+        debugPrint('Firestore deletion notice: $e');
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove('tailzs_device_id');
+      await prefs.remove('tailzs_remember_email');
+      await prefs.setBool('tailzs_remember_me', false);
+      await prefs.setBool('tailzs_freemium_mode', true);
+
+      if (!kIsWeb) {
+        try {
+          if (await Purchases.isConfigured) {
+            await Purchases.logOut();
+          }
+        } catch (e) {
+          debugPrint('Purchases logout notice: $e');
+        }
+      }
+
+      await currentUser.delete();
+
+      try {
+        await FirebaseAuth.instance.signInAnonymously();
+      } catch (_) {}
+
+      if (mounted) {
+        setState(() {
+          _loginSucceeded = false;
+          _emailController.clear();
+          _passwordController.clear();
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content:
+                Text('Account permanently deleted. Switched to Free Terminal.'),
+            backgroundColor: Color(0xFFFF3366),
+            duration: Duration(seconds: 4),
+          ),
+        );
+
+        await Future.delayed(const Duration(milliseconds: 300));
+        _dismissOverlayOrNavigate();
+      }
+    } on FirebaseAuthException catch (e) {
+      if (mounted) {
+        String msg = e.message ?? e.code;
+        if (e.code == 'requires-recent-login') {
+          msg =
+              'For security, please sign out and sign back in before deleting your account.';
+        }
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Deletion notice: $msg'),
+            backgroundColor: const Color(0xFFFF3366),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error: ${e.toString()}'),
+            backgroundColor: const Color(0xFFFF3366),
           ),
         );
       }
@@ -414,8 +652,10 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
           info.entitlements.active.isNotEmpty;
 
       if (isSubbed) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('tailzs_freemium_mode', false);
+
         if (currentUser != null) {
-          final prefs = await SharedPreferences.getInstance();
           await _syncDeviceRegistration(currentUser.uid, prefs);
         }
         if (mounted) {
@@ -457,13 +697,54 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
     }
   }
 
+  /// Explicitly demotes session to Freemium guest, signing out any keychain user
+  /// and clearing RevenueCat identity so iOS never carries over paid status.
   Future<void> _handleSkipToTerminal() async {
     HapticFeedback.lightImpact();
     setState(() => _isLoading = true);
+
     try {
       await _ensureRevenueCatConfigured();
+
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('tailzs_freemium_mode', true);
+
+      // 1. Force sign-out of any existing authenticated session found in iOS Keychain
+      final currentUser = FirebaseAuth.instance.currentUser;
+      if (currentUser != null && !currentUser.isAnonymous) {
+        await FirebaseAuth.instance.signOut();
+      }
+
+      // 2. Detach RevenueCat from any previously authenticated user ID
+      if (!kIsWeb) {
+        try {
+          if (await Purchases.isConfigured) {
+            await Purchases.logOut();
+          }
+        } catch (e) {
+          debugPrint('RC freemium reset notice: $e');
+        }
+      }
+
+      // 3. Guarantee a clean anonymous guest session for freemium operation
       if (FirebaseAuth.instance.currentUser == null) {
         await FirebaseAuth.instance.signInAnonymously();
+      }
+
+      if (mounted) {
+        setState(() {
+          _loginSucceeded = false;
+        });
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Entering Freemium Terminal.'),
+            backgroundColor: Color(0xFF00F5D4),
+            duration: Duration(seconds: 2),
+          ),
+        );
+
+        await Future.delayed(const Duration(milliseconds: 250));
       }
     } catch (e) {
       debugPrint('Anonymous entry notice: $e');
@@ -477,6 +758,9 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    final bool isLoggedIn = currentUser != null && !currentUser.isAnonymous;
+
     return Scaffold(
       backgroundColor: const Color(0xFF080C0E),
       body: SafeArea(
@@ -587,272 +871,341 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                           ),
                           const SizedBox(height: 18),
 
-                          // Access Granted Banner with Top-Left Arrow Instruction
-                          if (_loginSucceeded) ...[
-                            InkWell(
-                              onTap: () {
-                                HapticFeedback.lightImpact();
-                                _dismissOverlayOrNavigate();
-                              },
-                              borderRadius: BorderRadius.circular(10),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 14, vertical: 12),
-                                decoration: BoxDecoration(
-                                  color:
-                                      const Color(0xFF00F5D4).withOpacity(0.18),
-                                  borderRadius: BorderRadius.circular(10),
-                                  border: Border.all(
-                                      color: const Color(0xFF00F5D4),
-                                      width: 1.5),
-                                  boxShadow: const [
-                                    BoxShadow(
-                                      color: Color(0x3300F5D4),
-                                      blurRadius: 10,
-                                      offset: Offset(0, 2),
-                                    ),
-                                  ],
-                                ),
-                                child: Row(
-                                  children: const [
-                                    Icon(Icons.arrow_back_ios_new,
-                                        color: Color(0xFF00F5D4), size: 16),
-                                    SizedBox(width: 10),
-                                    Expanded(
-                                      child: Text(
-                                        'ACCESS GRANTED!\nTap here or the ‹ arrow in the top-left to enter.',
+                          // If the user is currently logged in, show active status & account controls
+                          if (isLoggedIn) ...[
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 12),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF0B1114),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(
+                                    color: const Color(0xFF00F5D4), width: 1),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: const [
+                                      Icon(Icons.verified_user,
+                                          color: Color(0xFF00F5D4), size: 16),
+                                      SizedBox(width: 8),
+                                      Text(
+                                        'ACTIVE TAILZS SESSION',
                                         style: TextStyle(
                                           color: Color(0xFF00F5D4),
-                                          fontSize: 11,
+                                          fontSize: 10.5,
                                           fontWeight: FontWeight.w900,
-                                          height: 1.3,
                                         ),
                                       ),
+                                    ],
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    currentUser.email ?? 'Authenticated User',
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12.5,
+                                      fontWeight: FontWeight.w700,
                                     ),
-                                    Icon(Icons.touch_app,
-                                        color: Color(0xFF00F5D4), size: 18),
-                                  ],
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 16),
+                            ElevatedButton(
+                              onPressed: _dismissOverlayOrNavigate,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF5E00),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 13),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                              child: const Text(
+                                'RETURN TO TERMINAL',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed: _isLoading ? null : _handleLogOut,
+                              icon: const Icon(Icons.logout,
+                                  color: Color(0xFF00F5D4), size: 15),
+                              label: const Text(
+                                'SIGN OUT',
+                                style: TextStyle(
+                                  color: Color(0xFF00F5D4),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                side: const BorderSide(
+                                    color: Color(0xFF24343B), width: 1.2),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            TextButton.icon(
+                              onPressed:
+                                  _isLoading ? null : _handleDeleteAccount,
+                              icon: const Icon(Icons.delete_forever,
+                                  color: Color(0xFFFF3366), size: 16),
+                              label: const Text(
+                                'DELETE ACCOUNT',
+                                style: TextStyle(
+                                  color: Color(0xFFFF3366),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton(
+                              onPressed:
+                                  _isLoading ? null : _handleSkipToTerminal,
+                              child: const Text(
+                                'SWITCH TO FREE TERMINAL ➔',
+                                style: TextStyle(
+                                  color: Color(0xFF8A99A6),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ] else ...[
+                            // Standard Login Inputs when unauthenticated
+                            const Text(
+                              'EMAIL ADDRESS',
+                              style: TextStyle(
+                                color: Color(0xFF8A99A6),
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: _emailController,
+                              keyboardType: TextInputType.emailAddress,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 13),
+                              decoration: InputDecoration(
+                                hintText: 'user@tailzs.com',
+                                hintStyle: const TextStyle(
+                                    color: Color(0xFF42545C), fontSize: 12),
+                                prefixIcon: const Icon(Icons.email_outlined,
+                                    color: Color(0xFF8A99A6), size: 18),
+                                filled: true,
+                                fillColor: const Color(0xFF0B1114),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 12),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFF24343B)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFF00F5D4), width: 1.5),
                                 ),
                               ),
                             ),
                             const SizedBox(height: 14),
-                          ],
-
-                          const Text(
-                            'EMAIL ADDRESS',
-                            style: TextStyle(
-                              color: Color(0xFF8A99A6),
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          TextField(
-                            controller: _emailController,
-                            keyboardType: TextInputType.emailAddress,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13),
-                            decoration: InputDecoration(
-                              hintText: 'user@tailzs.com',
-                              hintStyle: const TextStyle(
-                                  color: Color(0xFF42545C), fontSize: 12),
-                              prefixIcon: const Icon(Icons.email_outlined,
-                                  color: Color(0xFF8A99A6), size: 18),
-                              filled: true,
-                              fillColor: const Color(0xFF0B1114),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide:
-                                    const BorderSide(color: Color(0xFF24343B)),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(
-                                    color: Color(0xFF00F5D4), width: 1.5),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 14),
-                          const Text(
-                            'PASSWORD',
-                            style: TextStyle(
-                              color: Color(0xFF8A99A6),
-                              fontSize: 9,
-                              fontWeight: FontWeight.w800,
-                            ),
-                          ),
-                          const SizedBox(height: 6),
-                          TextField(
-                            controller: _passwordController,
-                            obscureText: _obscurePassword,
-                            style: const TextStyle(
-                                color: Colors.white, fontSize: 13),
-                            decoration: InputDecoration(
-                              hintText: '••••••••••••',
-                              hintStyle: const TextStyle(
-                                  color: Color(0xFF42545C), fontSize: 12),
-                              prefixIcon: const Icon(Icons.lock_outline,
-                                  color: Color(0xFF8A99A6), size: 18),
-                              suffixIcon: IconButton(
-                                icon: Icon(
-                                  _obscurePassword
-                                      ? Icons.visibility_off
-                                      : Icons.visibility,
-                                  color: const Color(0xFF8A99A6),
-                                  size: 18,
-                                ),
-                                onPressed: () => setState(
-                                    () => _obscurePassword = !_obscurePassword),
-                              ),
-                              filled: true,
-                              fillColor: const Color(0xFF0B1114),
-                              contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 12),
-                              enabledBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide:
-                                    const BorderSide(color: Color(0xFF24343B)),
-                              ),
-                              focusedBorder: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(10),
-                                borderSide: const BorderSide(
-                                    color: Color(0xFF00F5D4), width: 1.5),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          Row(
-                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                            children: [
-                              InkWell(
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  setState(() => _rememberMe = !_rememberMe);
-                                },
-                                child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: Checkbox(
-                                        value: _rememberMe,
-                                        activeColor: const Color(0xFF00F5D4),
-                                        checkColor: const Color(0xFF080C0E),
-                                        side: const BorderSide(
-                                            color: Color(0xFF8A99A6),
-                                            width: 1.5),
-                                        shape: RoundedRectangleBorder(
-                                            borderRadius:
-                                                BorderRadius.circular(4)),
-                                        onChanged: (val) {
-                                          HapticFeedback.selectionClick();
-                                          setState(
-                                              () => _rememberMe = val ?? false);
-                                        },
-                                      ),
-                                    ),
-                                    const SizedBox(width: 6),
-                                    const Text(
-                                      'REMEMBER ME',
-                                      style: TextStyle(
-                                        color: Color(0xFF8A99A6),
-                                        fontSize: 9.5,
-                                        fontWeight: FontWeight.w700,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              TextButton(
-                                onPressed: _handleForgotPassword,
-                                style: TextButton.styleFrom(
-                                  padding: EdgeInsets.zero,
-                                  minimumSize: const Size(0, 0),
-                                  tapTargetSize:
-                                      MaterialTapTargetSize.shrinkWrap,
-                                ),
-                                child: const Text(
-                                  'FORGOT PASSWORD?',
-                                  style: TextStyle(
-                                    color: Color(0xFF8A99A6),
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 18),
-                          ElevatedButton(
-                            onPressed: _isLoading ? null : _handleLogin,
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFFF5E00),
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                              elevation: 4,
-                              shadowColor: const Color(0x66FF5E00),
-                            ),
-                            child: _isLoading
-                                ? const SizedBox(
-                                    height: 18,
-                                    width: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                      valueColor: AlwaysStoppedAnimation<Color>(
-                                          Colors.white),
-                                    ),
-                                  )
-                                : const Text(
-                                    'SIGN IN',
-                                    style: TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w900,
-                                      letterSpacing: 1.0,
-                                    ),
-                                  ),
-                          ),
-                          const SizedBox(height: 12),
-                          OutlinedButton.icon(
-                            onPressed:
-                                _isLoading ? null : _handleRestorePurchases,
-                            icon: const Icon(Icons.restore,
-                                color: Color(0xFF00F5D4), size: 14),
-                            label: const Text(
-                              'RESTORE PURCHASES',
-                              style: TextStyle(
-                                color: Color(0xFF00F5D4),
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.6,
-                              ),
-                            ),
-                            style: OutlinedButton.styleFrom(
-                              padding: const EdgeInsets.symmetric(vertical: 11),
-                              side: const BorderSide(
-                                  color: Color(0xFF24343B), width: 1.2),
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(10)),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          TextButton(
-                            onPressed:
-                                _isLoading ? null : _handleSkipToTerminal,
-                            child: const Text(
-                              'SKIP TO FREE TERMINAL ➔',
+                            const Text(
+                              'PASSWORD',
                               style: TextStyle(
                                 color: Color(0xFF8A99A6),
-                                fontSize: 11,
+                                fontSize: 9,
                                 fontWeight: FontWeight.w800,
-                                letterSpacing: 0.8,
                               ),
                             ),
-                          ),
+                            const SizedBox(height: 6),
+                            TextField(
+                              controller: _passwordController,
+                              obscureText: _obscurePassword,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 13),
+                              decoration: InputDecoration(
+                                hintText: '••••••••••••',
+                                hintStyle: const TextStyle(
+                                    color: Color(0xFF42545C), fontSize: 12),
+                                prefixIcon: const Icon(Icons.lock_outline,
+                                    color: Color(0xFF8A99A6), size: 18),
+                                suffixIcon: IconButton(
+                                  icon: Icon(
+                                    _obscurePassword
+                                        ? Icons.visibility_off
+                                        : Icons.visibility,
+                                    color: const Color(0xFF8A99A6),
+                                    size: 18,
+                                  ),
+                                  onPressed: () => setState(() =>
+                                      _obscurePassword = !_obscurePassword),
+                                ),
+                                filled: true,
+                                fillColor: const Color(0xFF0B1114),
+                                contentPadding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 12),
+                                enabledBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFF24343B)),
+                                ),
+                                focusedBorder: OutlineInputBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                  borderSide: const BorderSide(
+                                      color: Color(0xFF00F5D4), width: 1.5),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                InkWell(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _rememberMe = !_rememberMe);
+                                  },
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: Checkbox(
+                                          value: _rememberMe,
+                                          activeColor: const Color(0xFF00F5D4),
+                                          checkColor: const Color(0xFF080C0E),
+                                          side: const BorderSide(
+                                              color: Color(0xFF8A99A6),
+                                              width: 1.5),
+                                          shape: RoundedRectangleBorder(
+                                              borderRadius:
+                                                  BorderRadius.circular(4)),
+                                          onChanged: (val) {
+                                            HapticFeedback.selectionClick();
+                                            setState(() =>
+                                                _rememberMe = val ?? false);
+                                          },
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      const Text(
+                                        'REMEMBER ME',
+                                        style: TextStyle(
+                                          color: Color(0xFF8A99A6),
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                TextButton(
+                                  onPressed: _handleForgotPassword,
+                                  style: TextButton.styleFrom(
+                                    padding: EdgeInsets.zero,
+                                    minimumSize: const Size(0, 0),
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text(
+                                    'FORGOT PASSWORD?',
+                                    style: TextStyle(
+                                      color: Color(0xFF8A99A6),
+                                      fontSize: 9,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 18),
+                            ElevatedButton(
+                              onPressed: _isLoading ? null : _handleLogin,
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFFFF5E00),
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                                elevation: 4,
+                                shadowColor: const Color(0x66FF5E00),
+                              ),
+                              child: _isLoading
+                                  ? const SizedBox(
+                                      height: 18,
+                                      width: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                        valueColor:
+                                            AlwaysStoppedAnimation<Color>(
+                                                Colors.white),
+                                      ),
+                                    )
+                                  : const Text(
+                                      'SIGN IN',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w900,
+                                        letterSpacing: 1.0,
+                                      ),
+                                    ),
+                            ),
+                            const SizedBox(height: 12),
+                            OutlinedButton.icon(
+                              onPressed:
+                                  _isLoading ? null : _handleRestorePurchases,
+                              icon: const Icon(Icons.restore,
+                                  color: Color(0xFF00F5D4), size: 14),
+                              label: const Text(
+                                'RESTORE PURCHASES',
+                                style: TextStyle(
+                                  color: Color(0xFF00F5D4),
+                                  fontSize: 10.5,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                              style: OutlinedButton.styleFrom(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 11),
+                                side: const BorderSide(
+                                    color: Color(0xFF24343B), width: 1.2),
+                                shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(10)),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            TextButton(
+                              onPressed:
+                                  _isLoading ? null : _handleSkipToTerminal,
+                              child: const Text(
+                                'SKIP TO FREE TERMINAL ➔',
+                                style: TextStyle(
+                                  color: Color(0xFF8A99A6),
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -889,7 +1242,7 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                           },
                           child: const Text(
                             'Privacy Policy',
-                            style: const TextStyle(
+                            style: TextStyle(
                               color: Color(0xFF8A99A6),
                               fontSize: 9.5,
                               decoration: TextDecoration.underline,
@@ -899,11 +1252,11 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                       ],
                     ),
 
-                    // Added v1.0.0+21 Footer Here
+                    // Version 1.0.0+22 Footer
                     const SizedBox(height: 24),
                     const Center(
                       child: Text(
-                        'v1.0.0+21',
+                        'v1.0.0+22',
                         style: TextStyle(
                           color: Color(0xFF42545C),
                           fontSize: 10,
@@ -915,20 +1268,43 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                 ),
               ),
 
-              // Functional Top-Left Teal Back Arrow
+              // Single crisp back chevron with opaque circular backing
               Positioned(
-                top: 16,
-                left: 16,
-                child: IconButton(
-                  icon: const Icon(
-                    Icons.arrow_back_ios_new,
-                    color: Color(0xFF00F5D4),
-                    size: 24,
+                top: 14,
+                left: 14,
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      _dismissOverlayOrNavigate();
+                    },
+                    borderRadius: BorderRadius.circular(20),
+                    child: Container(
+                      width: 38,
+                      height: 38,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF182226),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                            color: const Color(0xFF24343B), width: 1.5),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x40000000),
+                            blurRadius: 8,
+                            offset: Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                      child: const Center(
+                        child: Icon(
+                          Icons.arrow_back_ios_new,
+                          color: Color(0xFF00F5D4),
+                          size: 16,
+                        ),
+                      ),
+                    ),
                   ),
-                  onPressed: () {
-                    HapticFeedback.lightImpact();
-                    _dismissOverlayOrNavigate();
-                  },
                 ),
               ),
             ],

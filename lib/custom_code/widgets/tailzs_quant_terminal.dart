@@ -705,6 +705,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                       await prefs.remove('tailzs_device_id');
                       await prefs.remove('tailzs_remember_email');
                       await prefs.remove('tailzs_remember_me');
+                      await prefs.setBool('tailzs_freemium_mode', true);
                     } catch (_) {}
                     await user.delete();
                     await FirebaseAuth.instance.signOut();
@@ -971,18 +972,89 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                       ),
                     )
                   else
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () async {
+                            HapticFeedback.mediumImpact();
+                            Navigator.of(modalContext).pop();
+
+                            final prefs = await SharedPreferences.getInstance();
+                            await prefs.setBool('tailzs_freemium_mode', true);
+
+                            await FirebaseAuth.instance.signOut();
+                            if (!kIsWeb) {
+                              try {
+                                if (await Purchases.isConfigured) {
+                                  await Purchases.logOut();
+                                }
+                              } catch (_) {}
+                            }
+                            if (mounted) {
+                              setState(() {
+                                _rcIsSubscribed = false;
+                                _currentUser = null;
+                                _gamesCache.clear();
+                              });
+                              _openLoginScreen(parentContext);
+                            }
+                          },
+                          style: OutlinedButton.styleFrom(
+                            backgroundColor: const Color(0xFF161E22),
+                            padding: const EdgeInsets.symmetric(vertical: 13),
+                            side: const BorderSide(
+                                color: Color(0xFFFF5E00), width: 1.5),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: const [
+                              Icon(Icons.logout,
+                                  color: Color(0xFFFF5E00), size: 16),
+                              SizedBox(width: 8),
+                              Text(
+                                'LOG OUT',
+                                style: TextStyle(
+                                  color: Color(0xFFFF5E00),
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w900,
+                                  letterSpacing: 0.6,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        TextButton.icon(
+                          onPressed: () {
+                            HapticFeedback.heavyImpact();
+                            Navigator.of(modalContext).pop();
+                            _showDeleteAccountDialog(parentContext);
+                          },
+                          icon: const Icon(Icons.delete_forever,
+                              color: Color(0xFFFF3366), size: 14),
+                          label: const Text(
+                            'DELETE ACCOUNT',
+                            style: TextStyle(
+                              color: Color(0xFFFF3366),
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  const SizedBox(height: 10),
+                  if (isGuest)
                     OutlinedButton(
                       onPressed: () async {
-                        HapticFeedback.mediumImpact();
+                        HapticFeedback.lightImpact();
                         Navigator.of(modalContext).pop();
-                        await FirebaseAuth.instance.signOut();
-                        if (!kIsWeb) {
-                          try {
-                            if (await Purchases.isConfigured) {
-                              await Purchases.logOut();
-                            }
-                          } catch (_) {}
-                        }
+                        await Future.delayed(const Duration(milliseconds: 150));
                         if (mounted) {
                           _openLoginScreen(parentContext);
                         }
@@ -991,74 +1063,33 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                         backgroundColor: const Color(0xFF161E22),
                         padding: const EdgeInsets.symmetric(vertical: 13),
                         side: const BorderSide(
-                            color: Color(0xFFFF3366), width: 1.5),
+                            color: Color(0xFF00F5D4), width: 1.5),
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(10),
                         ),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const Icon(Icons.logout,
-                              color: Color(0xFFFF3366), size: 16),
-                          const SizedBox(width: 8),
-                          Text(
-                            isSubscribed
-                                ? 'LOG OUT (ACTIVE SUBSCRIBER)'
-                                : 'LOG OUT',
-                            style: const TextStyle(
-                              color: Color(0xFFFF3366),
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.6,
+                        children: const [
+                          Icon(Icons.swap_horiz_rounded,
+                              color: Color(0xFF00F5D4), size: 18),
+                          SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'SIGN IN / REGISTER TO UNLOCK',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: Color(0xFF00F5D4),
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.6,
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
-                  const SizedBox(height: 10),
-                  OutlinedButton(
-                    onPressed: () async {
-                      HapticFeedback.lightImpact();
-                      Navigator.of(modalContext).pop();
-                      await Future.delayed(const Duration(milliseconds: 150));
-                      if (mounted) {
-                        _openLoginScreen(parentContext);
-                      }
-                    },
-                    style: OutlinedButton.styleFrom(
-                      backgroundColor: const Color(0xFF161E22),
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                      side: const BorderSide(
-                          color: Color(0xFF00F5D4), width: 1.5),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                    ),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Icon(Icons.swap_horiz_rounded,
-                            color: Color(0xFF00F5D4), size: 18),
-                        const SizedBox(width: 8),
-                        Flexible(
-                          child: Text(
-                            isGuest
-                                ? 'SIGN IN / REGISTER TO UNLOCK'
-                                : 'LINK / SWITCH ACCOUNT ($userEmail)',
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              color: Color(0xFF00F5D4),
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.6,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
                   const SizedBox(height: 12),
                   Row(
                     children: [
@@ -1122,48 +1153,14 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  if (!isGuest)
-                    OutlinedButton(
-                      onPressed: () {
-                        HapticFeedback.heavyImpact();
-                        Navigator.of(modalContext).pop();
-                        _showDeleteAccountDialog(parentContext);
-                      },
-                      style: OutlinedButton.styleFrom(
-                        backgroundColor: const Color(0xFF161E22),
-                        padding: const EdgeInsets.symmetric(vertical: 13),
-                        side: const BorderSide(
-                            color: Color(0xFFFF3366), width: 1.5),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.delete_forever,
-                              color: Color(0xFFFF3366), size: 16),
-                          SizedBox(width: 8),
-                          Text(
-                            'DELETE ACCOUNT',
-                            style: TextStyle(
-                              color: Color(0xFFFF3366),
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.6,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
                   const SizedBox(height: 16),
-                  const Center(
+                  Center(
                     child: Text(
-                      'Tailzs Quant Terminal v1.0.0+21',
-                      style: TextStyle(
+                      'Tailzs Quant Terminal v1.0.0+22\n$userEmail',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
                         color: Color(0xFF5A6E78),
-                        fontSize: 10,
+                        fontSize: 9.5,
                         fontWeight: FontWeight.w600,
                         letterSpacing: 0.5,
                       ),
@@ -1947,7 +1944,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
     final String sportKey = activeSport.toLowerCase();
     DossiersRecord? targetDoc;
 
-    // 1. If a specific doc was selected from Vault, use it
     if (selectedDossierDocId != null) {
       try {
         targetDoc =
@@ -1955,7 +1951,6 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
       } catch (_) {}
     }
 
-    // 2. Otherwise dynamically find the latest available document
     if (targetDoc == null) {
       List<DossiersRecord> candidates = docs.where((d) {
         final id = d.reference.id.toLowerCase();

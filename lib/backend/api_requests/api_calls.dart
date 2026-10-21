@@ -46,9 +46,9 @@ class TriggerNCAAFPipelineCall {
 
 class TriggerMLBPipelineCall {
   static Future<ApiCallResponse> call({
-    String? mode = 'eod',
+    String? mode = 'prospective',
     String? tier = 'merge',
-    String? date = '',
+    String? date = '2026-10-17',
   }) async {
     final ffApiRequestBody = '''
 {
