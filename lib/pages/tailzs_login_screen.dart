@@ -55,10 +55,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
   @override
   void initState() {
     super.initState();
-
-  @override
-  void initState() {
-    super.initState();
     _checkExistingSession();
 
     // Listen for background subscription updates (e.g., from Restore Purchases)
@@ -83,8 +79,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
       }
     } catch (_) {}
     _navigateWithFallback();
-  }
- c4e6d9e (feat(release): build 19 (1.0.0+19) - Android 15 API 35, verified receipt with date, and release keystore)
   }
 
   void _navigateWithFallback() {
@@ -166,7 +160,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
     Purchases.removeCustomerInfoUpdateListener((_) {});
     super.dispose();
   }
- c4e6d9e (feat(release): build 19 (1.0.0+19) - Android 15 API 35, verified receipt with date, and release keystore)
   Future<void> _handleForgotPassword() async {
     final email = _emailController.text.trim();
 
