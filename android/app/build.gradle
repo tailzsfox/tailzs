@@ -40,9 +40,9 @@ android {
     defaultConfig {
         applicationId "com.tailzs.app"
         minSdkVersion 21
-        targetSdkVersion 35
-        versionCode 19
-        versionName "1.0.0"
+        targetSdkVersion 36
+        versionCode 20
+        versionName "1.0.0+20"
         multiDexEnabled true
     }
 
