@@ -1256,7 +1256,7 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                     const SizedBox(height: 24),
                     const Center(
                       child: Text(
-                        'v1.0.0+23',
+                        'v1.0.0+24',
                         style: TextStyle(
                           color: Color(0xFF42545C),
                           fontSize: 10,
