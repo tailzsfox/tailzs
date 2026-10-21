@@ -75,6 +75,26 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     for (var cand in candidates) {
       final normalizedTarget =
           cand.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
+
+      // Specifically target ml_projector_winner inside arrays first
+      if (normalizedTarget == 'mlprojectorwinner' ||
+          normalizedTarget == 'tier2pick') {
+        if (rootMap.containsKey('tier2_insignia') &&
+            rootMap['tier2_insignia'] is List) {
+          final List insigniaList = rootMap['tier2_insignia'];
+          if (insigniaList.isNotEmpty && insigniaList[0] is Map) {
+            if (insigniaList[0].containsKey('ml_projector_winner')) {
+              String rawValue =
+                  insigniaList[0]['ml_projector_winner'].toString();
+              if (rawValue.contains(':')) {
+                rawValue = rawValue.split(':').last.trim();
+              }
+              if (rawValue.isNotEmpty) return rawValue;
+            }
+          }
+        }
+      }
+
       for (var entry in rootMap.entries) {
         final normalizedKey = entry.key
             .toString()
@@ -172,25 +192,34 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     final buffer = StringBuffer();
     buffer.writeln('🦊 TAILZS QUANT VERIFIED RECEIPT');
     buffer.writeln('🏆 ${sport.toUpperCase()} ${tier.toUpperCase()}');
-    if (outcomeStatus.isNotEmpty) {
-      buffer.writeln('Outcome: $outcomeStatus');
-    }
-    buffer.writeln('Matchup: ${game['matchup'] ?? ''}');
 
     final gameDate = (game['game_date'] ?? '').toString().trim();
     if (gameDate.isNotEmpty && gameDate != 'TBA') {
-      buffer.writeln('Date: $gameDate');
+      buffer.writeln('📅 Game Date: $gameDate');
     }
+
+    buffer.writeln('Matchup: ${game['matchup'] ?? ''}');
 
     final score = (game['score'] ?? '').toString();
     if (score.isNotEmpty) {
       buffer.writeln('Score: $score');
     }
+
+    if (outcomeStatus.isNotEmpty) {
+      buffer.writeln('📊 Outcome: $outcomeStatus');
+    }
     buffer.writeln();
 
     for (int i = 1; i <= legCount; i++) {
       final label = game['l${i}_label']?.toString() ?? 'LEG $i';
-      final pick = game['l${i}_pick']?.toString() ?? 'TBD';
+      String pick = game['l${i}_pick']?.toString() ?? 'TBD';
+
+      // Clean "OPTION X" generic text
+      pick = pick
+          .replaceAll(
+              RegExp(r'OPTION\s*\d+\s*PICK:', caseSensitive: false), 'PICK:')
+          .trim();
+
       final status = game['l${i}_status']?.toString().toUpperCase() ?? '';
       buffer.writeln('• $label: $pick [$status]');
     }
@@ -299,11 +328,42 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           ),
                         ],
                       ),
+                      if (gameDate.isNotEmpty && gameDate != 'TBA') ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          '📅 Game Date: $gameDate',
+                          style: const TextStyle(
+                            color: Color(0xFF8A99A6),
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 8),
+                      Text(
+                        'Matchup: ${game['matchup'] ?? ''}',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      if ((game['score'] ?? '').toString().isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        Text(
+                          'Score: ${game['score']}',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
                       if (outcomeStatus.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Row(
                           children: [
-                            const Text('Outcome: ',
+                            const Text('📊 Outcome: ',
                                 style: TextStyle(
                                   color: Color(0xFF8A99A6),
                                   fontSize: 11.5,
@@ -326,37 +386,6 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           ],
                         ),
                       ],
-                      const SizedBox(height: 8),
-                      Text(
-                        'Matchup: ${game['matchup'] ?? ''}',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      if (gameDate.isNotEmpty && gameDate != 'TBA') ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          'Date: $gameDate',
-                          style: const TextStyle(
-                            color: Color(0xFF8A99A6),
-                            fontSize: 11.5,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
-                      if ((game['score'] ?? '').toString().isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          'Score: ${game['score']}',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 12,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ],
                       const Padding(
                         padding: EdgeInsets.symmetric(vertical: 10),
                         child: Divider(color: Color(0xFF24343B), height: 1),
@@ -365,8 +394,15 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         final legNum = i + 1;
                         final label = game['l${legNum}_label']?.toString() ??
                             'LEG $legNum';
-                        final pick =
+                        String pick =
                             game['l${legNum}_pick']?.toString() ?? 'TBD';
+                        pick = pick
+                            .replaceAll(
+                                RegExp(r'OPTION\s*\d+\s*PICK:',
+                                    caseSensitive: false),
+                                'PICK:')
+                            .trim();
+
                         final status = game['l${legNum}_status']
                                 ?.toString()
                                 .toUpperCase() ??
@@ -454,7 +490,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                   icon: const Icon(Icons.content_copy,
                       color: Colors.white, size: 16),
                   label: const Text(
-                    'COPY RECEIPT',
+                    'TAP TO COPY FOR POSTING RESULTS',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 11.5,

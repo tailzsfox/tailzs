@@ -1,7 +1,9 @@
 plugins {
-    id "com.android.application"
-    id "kotlin-android"
-    id "dev.flutter.flutter-gradle-plugin"
+   id "com.android.application"
+   id "kotlin-android"
+   id "dev.flutter.flutter-gradle-plugin"
+   id "com.google.gms.google-services"  // Google Services plugin
+
 }
 
 def localProperties = new Properties()
@@ -12,10 +14,15 @@ if (localPropertiesFile.exists()) {
     }
 }
 
-def flutterVersionCode = localProperties.getProperty('flutter.versionCode') ?: '19'
-def flutterVersionName = localProperties.getProperty('flutter.versionName') ?: '1.0.0'
+def flutterVersionCode = localProperties.getProperty('flutter.versionCode')
+if (flutterVersionCode == null) {
+    flutterVersionCode = '1'
+}
 
-
+def flutterVersionName = localProperties.getProperty('flutter.versionName')
+if (flutterVersionName == null) {
+    flutterVersionName = '1.0'
+}
 
 def keystoreProperties = new Properties()
 def keystorePropertiesFile = rootProject.file('key.properties')
@@ -25,56 +32,52 @@ if (keystorePropertiesFile.exists()) {
 
 android {
     namespace "com.tailzs.app"
-    compileSdkVersion 35
-    ndkVersion flutter.ndkVersion
+    compileSdkVersion 36
+    ndkVersion "28.2.13676358"
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_17
-        targetCompatibility JavaVersion.VERSION_17
+        coreLibraryDesugaringEnabled true
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
 
     kotlinOptions {
-        jvmTarget = '17'
+        jvmTarget = JavaVersion.VERSION_1_8
+    }
+
+    sourceSets {
+        main.java.srcDirs += 'src/main/kotlin'
+    }
+
+    lintOptions {
+        disable 'InvalidPackage'
+        checkReleaseBuilds false
     }
 
     defaultConfig {
+        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId "com.tailzs.app"
-        minSdkVersion 21
+        minSdkVersion 24
         targetSdkVersion 36
-        versionCode 20
-        versionName "1.0.0+20"
-        multiDexEnabled true
+        versionCode flutterVersionCode.toInteger()
+        versionName flutterVersionName
     }
 
-    signingConfigs {
-        release {
-            if (System.getenv()["CM_KEYSTORE_PATH"] ?: System.getenv()["CM_KEYSTORE"]) {
-                storeFile file(System.getenv()["CM_KEYSTORE_PATH"] ?: System.getenv()["CM_KEYSTORE"])
-                storePassword System.getenv()["CM_KEYSTORE_PASSWORD"]
-                keyAlias System.getenv()["CM_KEY_ALIAS"]
-                keyPassword System.getenv()["CM_KEY_PASSWORD"]
-            } else if (keystorePropertiesFile.exists() && file(keystoreProperties['storeFile'] ?: "").exists()) {
-                keyAlias keystoreProperties['keyAlias']
-                keyPassword keystoreProperties['keyPassword']
-                storeFile file(keystoreProperties['storeFile'])
-                storePassword keystoreProperties['storePassword']
-            } else if (System.getenv("CM_KEYSTORE_PATH")) {
-                keyAlias System.getenv("CM_KEY_ALIAS") ?: "tailzs-key"
-                keyPassword System.getenv("CM_KEY_PASSWORD") ?: "Tailzs2026!"
-                storeFile file(System.getenv("CM_KEYSTORE_PATH"))
-                storePassword System.getenv("CM_KEYSTORE_PASSWORD") ?: "Tailzs2026!"
-            } else {
-                throw new GradleException("CRITICAL: Production release signing key missing! Generic debug builds are strictly forbidden.")
-            }
-        }
-    }
+   signingConfigs {
+       release {
+           keyAlias keystoreProperties['keyAlias']
+           keyPassword keystoreProperties['keyPassword']
+           storeFile keystoreProperties['storeFile'] ? file(keystoreProperties['storeFile']) : null
+           storePassword keystoreProperties['storePassword']
+       }
+   }
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
-            minifyEnabled false
-            shrinkResources false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // TODO: Add your own signing config for the release build.
+            // Signing with the debug keys for now, so `flutter run --release` works.
+            signingConfig signingConfigs.debug
+            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
 }
@@ -84,5 +87,6 @@ flutter {
 }
 
 dependencies {
-    implementation platform('com.google.firebase:firebase-bom:32.8.0')
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.1.4'
+    implementation "org.jetbrains.kotlin:kotlin-stdlib-jdk7:2.2.20"
 }

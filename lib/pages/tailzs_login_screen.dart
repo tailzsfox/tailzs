@@ -5,7 +5,6 @@ import '/flutter_flow/ff_builtin_enums.dart';
 import '/flutter_flow/flutter_flow_theme.dart';
 import '/flutter_flow/flutter_flow_util.dart';
 import '/custom_code/widgets/index.dart'; // Imports other custom widgets
-import '/flutter_flow/custom_functions.dart'; // Imports custom functions
 import 'package:flutter/material.dart' hide RepeatMode;
 // Begin custom widget code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
@@ -899,7 +898,37 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                         ),
                       ],
                     ),
+
+                    // Added v1.0.0+21 Footer Here
+                    const SizedBox(height: 24),
+                    const Center(
+                      child: Text(
+                        'v1.0.0+21',
+                        style: TextStyle(
+                          color: Color(0xFF42545C),
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
                   ],
+                ),
+              ),
+
+              // Functional Top-Left Teal Back Arrow
+              Positioned(
+                top: 16,
+                left: 16,
+                child: IconButton(
+                  icon: const Icon(
+                    Icons.arrow_back_ios_new,
+                    color: Color(0xFF00F5D4),
+                    size: 24,
+                  ),
+                  onPressed: () {
+                    HapticFeedback.lightImpact();
+                    _dismissOverlayOrNavigate();
+                  },
                 ),
               ),
             ],
