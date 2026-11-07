@@ -9,8 +9,6 @@ import 'package:flutter/material.dart' hide RepeatMode;
 // Begin custom widget code
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
-import '/custom_code/widgets/index.dart';
-
 import 'package:flutter/services.dart';
 
 class TailzsQuantCommandHeader extends StatefulWidget {
@@ -46,7 +44,10 @@ class TailzsQuantCommandHeader extends StatefulWidget {
 
 class _TailzsQuantCommandHeaderState extends State<TailzsQuantCommandHeader> {
   final TextEditingController _searchController = TextEditingController();
-  final List<String> activeSportsList = ['MLB', 'NCAAF'];
+
+  // UPDATED: NFL, NBA, NHL, and NCAAF are now active.
+  // Stripped explicit <String> typing to prevent FlutterFlow parser errors.
+  final List activeSportsList = ['NFL', 'NBA', 'NHL', 'NCAAF'];
 
   @override
   void dispose() {

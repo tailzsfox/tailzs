@@ -318,7 +318,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
         await prefs.setBool('tailzs_remember_me', false);
       }
 
-      // Clear freemium bypass flag upon deliberate user login
       await prefs.setBool('tailzs_freemium_mode', false);
 
       if (FirebaseAuth.instance.currentUser != null &&
@@ -401,7 +400,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
         await prefs.setBool('tailzs_remember_me', false);
       }
 
-      // Enforce freemium flag state
       await prefs.setBool('tailzs_freemium_mode', true);
 
       if (!kIsWeb) {
@@ -697,8 +695,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
     }
   }
 
-  /// Explicitly demotes session to Freemium guest, signing out any keychain user
-  /// and clearing RevenueCat identity so iOS never carries over paid status.
   Future<void> _handleSkipToTerminal() async {
     HapticFeedback.lightImpact();
     setState(() => _isLoading = true);
@@ -709,13 +705,11 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('tailzs_freemium_mode', true);
 
-      // 1. Force sign-out of any existing authenticated session found in iOS Keychain
       final currentUser = FirebaseAuth.instance.currentUser;
       if (currentUser != null && !currentUser.isAnonymous) {
         await FirebaseAuth.instance.signOut();
       }
 
-      // 2. Detach RevenueCat from any previously authenticated user ID
       if (!kIsWeb) {
         try {
           if (await Purchases.isConfigured) {
@@ -726,7 +720,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
         }
       }
 
-      // 3. Guarantee a clean anonymous guest session for freemium operation
       if (FirebaseAuth.instance.currentUser == null) {
         await FirebaseAuth.instance.signInAnonymously();
       }
@@ -870,8 +863,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                             ),
                           ),
                           const SizedBox(height: 18),
-
-                          // If the user is currently logged in, show active status & account controls
                           if (isLoggedIn) ...[
                             Container(
                               padding: const EdgeInsets.symmetric(
@@ -986,7 +977,6 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                               ),
                             ),
                           ] else ...[
-                            // Standard Login Inputs when unauthenticated
                             const Text(
                               'EMAIL ADDRESS',
                               style: TextStyle(
@@ -1252,11 +1242,11 @@ class _TailzsLoginScreenState extends State<TailzsLoginScreen> {
                       ],
                     ),
 
-                    // Version 1.0.0+23 Footer
+                    // Version 2.0.0+1 Footer
                     const SizedBox(height: 24),
                     const Center(
                       child: Text(
-                        'v1.0.0+24',
+                        'v2.0.0+1',
                         style: TextStyle(
                           color: Color(0xFF42545C),
                           fontSize: 10,

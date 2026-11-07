@@ -13,9 +13,9 @@ const _kPrivateApiFunctionName = 'ffPrivateApiCall';
 
 class TriggerNCAAFPipelineCall {
   static Future<ApiCallResponse> call({
-    int? week = 7,
+    int? week = 10,
     String? tier = 'merge',
-    String? mode = 'eow',
+    String? mode = 'prospective',
   }) async {
     final ffApiRequestBody = '''
 {
@@ -46,9 +46,9 @@ class TriggerNCAAFPipelineCall {
 
 class TriggerMLBPipelineCall {
   static Future<ApiCallResponse> call({
-    String? mode = 'prospective',
+    String? mode = 'eod',
     String? tier = 'merge',
-    String? date = '2026-10-17',
+    String? date = '2026-10-28',
   }) async {
     final ffApiRequestBody = '''
 {
@@ -63,6 +63,105 @@ class TriggerMLBPipelineCall {
       callType: ApiCallType.POST,
       headers: {
         'Content-Type': 'application/json',
+      },
+      params: {},
+      body: ffApiRequestBody,
+      bodyType: BodyType.JSON,
+      returnBody: true,
+      encodeBodyUtf8: false,
+      decodeUtf8: false,
+      cache: false,
+      isStreamingApi: false,
+      alwaysAllowBody: false,
+    );
+  }
+}
+
+class NHLPipelineCall {
+  static Future<ApiCallResponse> call({
+    String? mode = 'eod',
+    String? date = '2026-11-04',
+  }) async {
+    final ffApiRequestBody = '''
+{
+  "mode": ${mode == null ? 'null' : '"${escapeStringForJson(mode)}"'},
+  "date": ${date == null ? 'null' : '"${escapeStringForJson(date)}"'}
+}''';
+    return ApiManager.instance.makeApiCall(
+      callName: 'NHL Pipeline',
+      apiUrl: 'https://tailzs-nhl-engine-56267457175.us-central1.run.app/run',
+      callType: ApiCallType.POST,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-API-Key': 'tailzs-quant-secret',
+      },
+      params: {},
+      body: ffApiRequestBody,
+      bodyType: BodyType.JSON,
+      returnBody: true,
+      encodeBodyUtf8: false,
+      decodeUtf8: false,
+      cache: false,
+      isStreamingApi: false,
+      alwaysAllowBody: false,
+    );
+  }
+}
+
+class NFLPipelineCall {
+  static Future<ApiCallResponse> call({
+    String? mode = 'eow',
+    int? week = 9,
+    String? tier = 'master',
+  }) async {
+    final ffApiRequestBody = '''
+{
+  "mode": ${mode == null ? 'null' : '"${escapeStringForJson(mode)}"'},
+  "week": ${week},
+  "tier": ${tier == null ? 'null' : '"${escapeStringForJson(tier)}"'}
+}''';
+    return ApiManager.instance.makeApiCall(
+      callName: 'NFL Pipeline',
+      apiUrl:
+          'https://tailzs-nfl-dispatcher-56267457175.us-central1.run.app/run',
+      callType: ApiCallType.POST,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': 'tailzs-quant-secret',
+      },
+      params: {},
+      body: ffApiRequestBody,
+      bodyType: BodyType.JSON,
+      returnBody: true,
+      encodeBodyUtf8: false,
+      decodeUtf8: false,
+      cache: false,
+      isStreamingApi: false,
+      alwaysAllowBody: false,
+    );
+  }
+}
+
+class NBAPipelineCall {
+  static Future<ApiCallResponse> call({
+    String? mode = 'eod',
+    String? date = '2026-11-05',
+    String? tier = 'master',
+  }) async {
+    final ffApiRequestBody = '''
+{
+  "mode": ${mode == null ? 'null' : '"${escapeStringForJson(mode)}"'},
+  "date": ${date == null ? 'null' : '"${escapeStringForJson(date)}"'},
+  "tier": ${tier == null ? 'null' : '"${escapeStringForJson(tier)}"'}
+}''';
+    return ApiManager.instance.makeApiCall(
+      callName: 'NBA Pipeline',
+      apiUrl:
+          'https://tailzs-nba-dispatcher-56267457175.us-central1.run.app/run',
+      callType: ApiCallType.POST,
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': 'tailzs-quant-secret',
       },
       params: {},
       body: ffApiRequestBody,

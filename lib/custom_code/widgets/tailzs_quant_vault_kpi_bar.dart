@@ -47,17 +47,17 @@ class TailzsQuantVaultKpiBar extends StatefulWidget {
   final double? winPercent;
   final int? pendingCount;
   final int? gamesQueuedCount;
-  final DossiersRecord? dossierDocs;
+  final dynamic dossierDocs;
   final String? dossierUrl;
   final String? selectedDossierDocId;
-  final Future Function()? onUpgradeTapped;
+  final dynamic onUpgradeTapped;
 
   @override
   State<TailzsQuantVaultKpiBar> createState() => _TailzsQuantVaultKpiBarState();
 }
 
 class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
-  Future<void> _triggerElectricHapticBuzz() async {
+  dynamic _triggerElectricHapticBuzz() async {
     try {
       await HapticFeedback.heavyImpact();
       await Future.delayed(const Duration(milliseconds: 60));
@@ -114,12 +114,10 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
     return (mode == 'AUDIT') ? isAudit : !isAudit;
   }
 
-  int? _extractNcaafWeek(String docId, Map<String, dynamic> data, String url) {
+  int? _extractNcaafWeek(String docId, dynamic data, String url) {
     final m1 =
         RegExp(r'week[_-]?(\d+)', caseSensitive: false).firstMatch(docId);
-    if (m1 != null) {
-      return int.tryParse(m1.group(1)!);
-    }
+    if (m1 != null) return int.tryParse(m1.group(1)!);
     if (data.containsKey('week') && data['week'] != null) {
       final w = int.tryParse(data['week'].toString());
       if (w != null) return w;
@@ -131,29 +129,21 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
     final fn = data['pdf_filename']?.toString() ?? '';
     final m2 = RegExp(r'week[_-]?(\d+)', caseSensitive: false).firstMatch(fn) ??
         RegExp(r'week[_-]?(\d+)', caseSensitive: false).firstMatch(url);
-    if (m2 != null) {
-      return int.tryParse(m2.group(1)!);
-    }
+    if (m2 != null) return int.tryParse(m2.group(1)!);
     return null;
   }
 
-  String? _extractMlbDate(String docId, Map<String, dynamic> data, String url) {
+  String? _extractMlbDate(String docId, dynamic data, String url) {
     final m1 = RegExp(r'date_(\d{4})_(\d{2})_(\d{2})', caseSensitive: false)
         .firstMatch(docId);
-    if (m1 != null) {
-      return '${m1.group(1)}-${m1.group(2)}-${m1.group(3)}';
-    }
+    if (m1 != null) return '${m1.group(1)}-${m1.group(2)}-${m1.group(3)}';
     final fn = data['pdf_filename']?.toString() ?? '';
     final m2 = RegExp(r'(\d{4})[-_](\d{2})[-_](\d{2})').firstMatch(fn) ??
         RegExp(r'(\d{4})[-_](\d{2})[-_](\d{2})').firstMatch(url);
-    if (m2 != null) {
-      return '${m2.group(1)}-${m2.group(2)}-${m2.group(3)}';
-    }
+    if (m2 != null) return '${m2.group(1)}-${m2.group(2)}-${m2.group(3)}';
     final dField = (data['date'] ?? data['slate_date'])?.toString() ?? '';
     final m3 = RegExp(r'(\d{4})[-_](\d{2})[-_](\d{2})').firstMatch(dField);
-    if (m3 != null) {
-      return '${m3.group(1)}-${m3.group(2)}-${m3.group(3)}';
-    }
+    if (m3 != null) return '${m3.group(1)}-${m3.group(2)}-${m3.group(3)}';
     final gd = data['game_date']?.toString() ?? '';
     final m4 = RegExp(
             r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(\d+)',
@@ -205,11 +195,13 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
     return dateStr.replaceAll('-', ' ').toUpperCase();
   }
 
-  Future<Map<String, String>?> _resolveActiveMasterDossier() async {
+  // --- EDGE CACHE HYDRATION: DOSSIER MASTER RESOLVER ---
+  dynamic _resolveActiveMasterDossier() async {
     final String sport = widget.selectedSport ?? 'NCAAF';
     final String mode = widget.selectedMode ?? 'PROSPECTIVE';
     final String sportKey = sport.toLowerCase();
-    final List<String> candidateKeys = [
+
+    final candidateKeys = [
       'pdf_url',
       'dossier_pdf_url',
       'dossier_url',
@@ -222,24 +214,35 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
     ];
 
     try {
-      final querySnapshot =
-          await FirebaseFirestore.instance.collection('dossiers').get();
+      final collectionRef = FirebaseFirestore.instance.collection('dossiers');
+
+      // 1. Instant disk cache retrieval (Zero Firestore cost)
+      dynamic querySnapshot;
+      try {
+        querySnapshot =
+            await collectionRef.get(const GetOptions(source: Source.cache));
+      } catch (_) {}
+
+      // 2. Fetch from server only on cold cache
+      if (querySnapshot == null || querySnapshot.docs.isEmpty) {
+        querySnapshot =
+            await collectionRef.get(const GetOptions(source: Source.server));
+      }
 
       if (widget.selectedDossierDocId != null) {
         for (var doc in querySnapshot.docs) {
           if (doc.id.toLowerCase() ==
               widget.selectedDossierDocId!.toLowerCase()) {
-            final data = doc.data();
+            final data = doc.data() as Map;
             for (var k in candidateKeys) {
               if (data.containsKey(k) && data[k] != null) {
                 final sanitized = _sanitizeUrl(data[k].toString());
-                if (sanitized.isNotEmpty) {
+                if (sanitized.isNotEmpty)
                   return {
                     'url': sanitized,
                     'docId': doc.id,
                     'label': 'MASTER DOSSIER ($sport • $mode)'
                   };
-                }
               }
             }
           }
@@ -252,17 +255,16 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
             docId.contains('latest') &&
             _isDocMatchingMode(docId, mode)) {
           if (!docId.contains('master')) continue;
-          final data = doc.data();
+          final data = doc.data() as Map;
           for (var k in candidateKeys) {
             if (data.containsKey(k) && data[k] != null) {
               final sanitized = _sanitizeUrl(data[k].toString());
-              if (sanitized.isNotEmpty) {
+              if (sanitized.isNotEmpty)
                 return {
                   'url': sanitized,
                   'docId': doc.id,
                   'label': 'MASTER DOSSIER ($sport • $mode)'
                 };
-              }
             }
           }
         }
@@ -272,10 +274,8 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
     if (widget.dossierUrl != null && widget.dossierUrl!.isNotEmpty) {
       final clean = _sanitizeUrl(widget.dossierUrl!);
       final fallbackDocId = mode == 'AUDIT'
-          ? (sport == 'MLB'
-              ? 'mlb_eod_master_latest'
-              : 'ncaaf_eow_master_latest')
-          : (sport == 'MLB' ? 'mlb_master_latest' : 'ncaaf_master_latest');
+          ? '${sportKey}_eod_master_latest'
+          : '${sportKey}_master_latest';
       return {
         'url': clean,
         'docId': fallbackDocId,
@@ -285,7 +285,7 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
     return null;
   }
 
-  Future<void> _accessDossierSmartCache({
+  dynamic _accessDossierSmartCache({
     required BuildContext context,
     required String pdfUrl,
     required String docId,
@@ -352,13 +352,14 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
     }
   }
 
-  // --- GUARANTEED WEEK / DATE RESOLUTION (WEEK 6 CANNOT BE DROPPED) ---
-  Future<void> _showWeekSelectorModal(BuildContext context) async {
+  // --- EDGE CACHE HYDRATION: WEEK SELECTOR MODAL ---
+  dynamic _showWeekSelectorModal(BuildContext context) async {
     final String sport = widget.selectedSport ?? 'NCAAF';
     final String mode = widget.selectedMode ?? 'PROSPECTIVE';
     final String sportKey = sport.toLowerCase();
     final bool isAudit = (mode == 'AUDIT');
-    final List<String> candidateKeys = [
+
+    final candidateKeys = [
       'pdf_url',
       'dossier_pdf_url',
       'dossier_url',
@@ -370,12 +371,23 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
       'file_url',
       'media_link'
     ];
-
-    List<Map<String, dynamic>> rawList = [];
+    final rawList = [];
 
     try {
-      final querySnapshot =
-          await FirebaseFirestore.instance.collection('dossiers').get();
+      final collectionRef = FirebaseFirestore.instance.collection('dossiers');
+
+      // 1. Instant disk cache retrieval (Zero Firestore cost)
+      dynamic querySnapshot;
+      try {
+        querySnapshot =
+            await collectionRef.get(const GetOptions(source: Source.cache));
+      } catch (_) {}
+
+      // 2. Query server only if cold cache
+      if (querySnapshot == null || querySnapshot.docs.isEmpty) {
+        querySnapshot =
+            await collectionRef.get(const GetOptions(source: Source.server));
+      }
 
       for (var doc in querySnapshot.docs) {
         final docId = doc.id.toLowerCase();
@@ -388,7 +400,7 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
             docId.contains('audit');
         if (isAudit != isDocAudit) continue;
 
-        final data = doc.data();
+        final data = doc.data() as Map;
         String cleanUrl = '';
         for (var k in candidateKeys) {
           if (data.containsKey(k) && data[k] != null) {
@@ -412,7 +424,7 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
           }
         }
 
-        if (sport == 'NCAAF') {
+        if (sport == 'NCAAF' || sport == 'NFL') {
           if (docId.contains('date_')) continue;
 
           final weekNum = _extractNcaafWeek(docId, data, cleanUrl);
@@ -420,7 +432,7 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
             rawList.add({
               'sort_val': weekNum,
               'label':
-                  '🏈 NCAAF WEEK $weekNum MASTER ${isAudit ? "AUDIT" : "SLATE"}',
+                  '🏈 $sport WEEK $weekNum MASTER ${isAudit ? "AUDIT" : "SLATE"}',
               'url': cleanUrl,
               'docId': doc.id,
             });
@@ -429,8 +441,11 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
           final dateStr = _extractMlbDate(docId, data, cleanUrl);
           if (dateStr != null && dateStr.isNotEmpty) {
             final formattedDate = _formatMlbDateDisplay(dateStr);
-            final prefix =
-                isAudit ? '⚾ MLB EOD MASTER SLATE —' : '⚾ MLB MASTER SLATE —';
+            String sportEmoji =
+                sport == 'NBA' ? '🏀' : (sport == 'NHL' ? '🏒' : '⚾');
+            final prefix = isAudit
+                ? '$sportEmoji $sport EOD MASTER SLATE —'
+                : '$sportEmoji $sport MASTER SLATE —';
             rawList.add({
               'sort_val': dateStr,
               'label': '$prefix $formattedDate',
@@ -442,33 +457,37 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
       }
     } catch (_) {}
 
-    // Sort descending: highest week number first for NCAAF, newest date first for MLB
-    if (sport == 'NCAAF') {
-      rawList.sort(
-          (a, b) => (b['sort_val'] as int).compareTo(a['sort_val'] as int));
+    if (sport == 'NCAAF' || sport == 'NFL') {
+      rawList.sort((a, b) {
+        final valA = a['sort_val'];
+        final valB = b['sort_val'];
+        return valB.compareTo(valA);
+      });
     } else {
-      rawList.sort((a, b) =>
-          (b['sort_val'] as String).compareTo(a['sort_val'] as String));
+      rawList.sort((a, b) {
+        final valA = a['sort_val'].toString();
+        final valB = b['sort_val'].toString();
+        return valB.compareTo(valA);
+      });
     }
 
-    // Deduplicate strictly by sort_val (Week number or Calendar date)
-    final List<Map<String, String>> modalList = [];
-    final Set<dynamic> seenSorts = {};
+    final modalList = [];
+    final seenSorts = {};
 
     for (var item in rawList) {
       final sortKey = item['sort_val'];
-      if (seenSorts.contains(sortKey)) continue;
-      seenSorts.add(sortKey);
+      if (seenSorts.containsKey(sortKey)) continue;
+      seenSorts[sortKey] = true;
       modalList.add({
-        'label': item['label'] as String,
-        'url': item['url'] as String,
-        'docId': item['docId'] as String,
+        'label': item['label'],
+        'url': item['url'],
+        'docId': item['docId'],
       });
     }
 
     if (modalList.isEmpty) return;
-
     if (!context.mounted) return;
+
     showModalBottomSheet(
       context: context,
       backgroundColor: const Color(0xFF182226),
@@ -501,15 +520,15 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
                     child: ElevatedButton.icon(
                       onPressed: () async {
                         Navigator.pop(mContext);
-                        await _accessDossierSmartCache(
+                        _accessDossierSmartCache(
                             context: context,
-                            pdfUrl: item['url']!,
-                            docId: item['docId']!,
-                            titleLabel: item['label']!);
+                            pdfUrl: item['url'].toString(),
+                            docId: item['docId'].toString(),
+                            titleLabel: item['label'].toString());
                       },
                       icon: const Icon(Icons.flash_on,
                           color: Color(0xFFFF5E00), size: 16),
-                      label: Text(item['label']!,
+                      label: Text(item['label'].toString(),
                           style: const TextStyle(
                               color: Colors.white,
                               fontSize: 11,
@@ -615,17 +634,14 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
             child: Text(
               '⭐ Tap star on any matchup to pin favorites to top',
               style: TextStyle(
-                color: Color(0xFF8A99A6),
-                fontSize: 8.5,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.3,
-              ),
+                  color: Color(0xFF8A99A6),
+                  fontSize: 8.5,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.3),
             ),
           ),
           const SizedBox(height: 8),
         ],
-
-        // Dossier Vault Button
         Container(
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(10),
@@ -639,9 +655,9 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
                 : [],
           ),
           child: GestureDetector(
-            onLongPress: () async {
+            onLongPress: () {
               if (!subActive) {
-                await _triggerElectricHapticBuzz();
+                _triggerElectricHapticBuzz();
                 widget.onUpgradeTapped?.call();
                 return;
               }
@@ -651,18 +667,20 @@ class _TailzsQuantVaultKpiBarState extends State<TailzsQuantVaultKpiBar> {
             child: ElevatedButton(
               onPressed: () async {
                 if (!subActive) {
-                  await _triggerElectricHapticBuzz();
+                  _triggerElectricHapticBuzz();
                   widget.onUpgradeTapped?.call();
                   return;
                 }
                 HapticFeedback.mediumImpact();
                 final activeDossier = await _resolveActiveMasterDossier();
-                if (activeDossier != null && activeDossier['url']!.isNotEmpty) {
-                  await _accessDossierSmartCache(
+                if (activeDossier != null &&
+                    activeDossier['url'] != null &&
+                    activeDossier['url']!.toString().isNotEmpty) {
+                  _accessDossierSmartCache(
                       context: context,
-                      pdfUrl: activeDossier['url']!,
-                      docId: activeDossier['docId']!,
-                      titleLabel: activeDossier['label']!);
+                      pdfUrl: activeDossier['url']!.toString(),
+                      docId: activeDossier['docId']!.toString(),
+                      titleLabel: activeDossier['label']!.toString());
                 } else {
                   ScaffoldMessenger.of(context).showSnackBar(SnackBar(
                     content: Text(

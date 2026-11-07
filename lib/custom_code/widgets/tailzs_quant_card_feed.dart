@@ -82,12 +82,10 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     }
   }
 
-  Future<void> _triggerWaterRippleHaptic() async {
+  Future<void> _triggerMechanicalLatchHaptic() async {
     try {
-      await HapticFeedback.mediumImpact();
-      await Future.delayed(const Duration(milliseconds: 70));
-      await HapticFeedback.lightImpact();
-      await Future.delayed(const Duration(milliseconds: 90));
+      await HapticFeedback.heavyImpact();
+      await Future.delayed(const Duration(milliseconds: 60));
       await HapticFeedback.selectionClick();
     } catch (_) {
       HapticFeedback.lightImpact();
@@ -95,7 +93,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
   }
 
   String _getFlexibleDeep(
-      Map<String, dynamic> rootMap, List<String> candidates, String fallback) {
+      Map<dynamic, dynamic> rootMap, List<String> candidates, String fallback) {
     for (var cand in candidates) {
       final normalizedTarget =
           cand.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]'), '');
@@ -104,11 +102,11 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
           normalizedTarget == 'tier2pick') {
         if (rootMap.containsKey('tier2_insignia') &&
             rootMap['tier2_insignia'] is List) {
-          final List insigniaList = rootMap['tier2_insignia'];
+          final List insigniaList = rootMap['tier2_insignia'] as List;
           if (insigniaList.isNotEmpty && insigniaList[0] is Map) {
-            if (insigniaList[0].containsKey('ml_projector_winner')) {
-              String rawValue =
-                  insigniaList[0]['ml_projector_winner'].toString();
+            final Map firstItem = insigniaList[0] as Map;
+            if (firstItem.containsKey('ml_projector_winner')) {
+              String rawValue = firstItem['ml_projector_winner'].toString();
               if (rawValue.contains(':')) {
                 rawValue = rawValue.split(':').last.trim();
               }
@@ -135,7 +133,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     }
     for (var entry in rootMap.entries) {
       if (entry.value is Map) {
-        final childMap = Map<String, dynamic>.from(entry.value as Map);
+        final childMap = Map.from(entry.value as Map);
         final res = _getFlexibleDeep(childMap, candidates, '');
         if (res.isNotEmpty) return res;
       }
@@ -143,7 +141,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     return fallback;
   }
 
-  bool _isValidGameItem(Map<String, dynamic> item) {
+  bool _isValidGameItem(Map<dynamic, dynamic> item) {
     final String rawMatchup =
         _getFlexibleDeep(item, ['game_matchup', 'matchup', 'game', 'event'], '')
             .trim();
@@ -209,7 +207,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     return true;
   }
 
-  String _generateReceiptText(Map<String, dynamic> game, String sport,
+  String _generateReceiptText(Map<dynamic, dynamic> game, String sport,
       String tier, int legCount, String outcomeStatus) {
     final buffer = StringBuffer();
     buffer.writeln('🦊 TAILZS QUANT VERIFIED RECEIPT');
@@ -252,9 +250,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
   }
 
   void _showShareReceiptModal(
-      BuildContext context, Map<String, dynamic> game, String outcomeStatus) {
+      BuildContext context, Map<dynamic, dynamic> game, String outcomeStatus) {
     HapticFeedback.mediumImpact();
-    final String sport = widget.selectedSport ?? 'NCAAF';
+    final String sport = widget.selectedSport ?? 'NFL';
     final String tier = widget.selectedTier ?? 'TIER 1 PARLAY';
     final int legCount = (game['legCount'] as int?) ?? 1;
     final String receiptText =
@@ -285,15 +283,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         Text('📥 ', style: TextStyle(fontSize: 16)),
                         Text(
                           'SHARE VERIFIED RECEIPT',
-                          textScaler: TextScaler.noScaling,
-                          textHeightBehavior: TextHeightBehavior(
-                              leadingDistribution:
-                                  TextLeadingDistribution.even),
                           style: TextStyle(
                             color: Color(0xFF00F5D4),
                             fontSize: 13,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.6,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ],
@@ -329,15 +324,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           Text('🦊 ', style: TextStyle(fontSize: 14)),
                           Text(
                             'TAILZS QUANT VERIFIED RECEIPT',
-                            textScaler: TextScaler.noScaling,
-                            textHeightBehavior: TextHeightBehavior(
-                                leadingDistribution:
-                                    TextLeadingDistribution.even),
                             style: TextStyle(
                               color: Colors.white,
                               fontSize: 12,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 0.5,
+                              decoration: TextDecoration.none,
                             ),
                           ),
                         ],
@@ -348,15 +340,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           const Text('🏆 ', style: TextStyle(fontSize: 13)),
                           Text(
                             '${sport.toUpperCase()} ${tier.toUpperCase()}',
-                            textScaler: TextScaler.noScaling,
-                            textHeightBehavior: const TextHeightBehavior(
-                                leadingDistribution:
-                                    TextLeadingDistribution.even),
                             style: const TextStyle(
                               color: Color(0xFFFFD700),
                               fontSize: 11.5,
                               fontWeight: FontWeight.w900,
                               letterSpacing: 0.4,
+                              decoration: TextDecoration.none,
                             ),
                           ),
                         ],
@@ -365,44 +354,36 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         const SizedBox(height: 6),
                         Text(
                           '📅 Game Date: $gameDate',
-                          textScaler: TextScaler.noScaling,
-                          textHeightBehavior: const TextHeightBehavior(
-                              leadingDistribution:
-                                  TextLeadingDistribution.even),
                           style: const TextStyle(
                             color: Color(0xFF8A99A6),
                             fontSize: 11.5,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.2,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ],
                       const SizedBox(height: 8),
                       Text(
                         'Matchup: ${_tighten(game['matchup'] ?? '')}',
-                        textScaler: TextScaler.noScaling,
-                        textHeightBehavior: const TextHeightBehavior(
-                            leadingDistribution: TextLeadingDistribution.even),
                         style: const TextStyle(
                           color: Colors.white,
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           letterSpacing: 0.2,
+                          decoration: TextDecoration.none,
                         ),
                       ),
                       if ((game['score'] ?? '').toString().isNotEmpty) ...[
                         const SizedBox(height: 2),
                         Text(
                           'Score: ${_tighten(game['score'])}',
-                          textScaler: TextScaler.noScaling,
-                          textHeightBehavior: const TextHeightBehavior(
-                              leadingDistribution:
-                                  TextLeadingDistribution.even),
                           style: const TextStyle(
                             color: Colors.white,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                             letterSpacing: 0.2,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ],
@@ -411,22 +392,15 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         Row(
                           children: [
                             const Text('📊 Outcome: ',
-                                textScaler: TextScaler.noScaling,
-                                textHeightBehavior: TextHeightBehavior(
-                                    leadingDistribution:
-                                        TextLeadingDistribution.even),
                                 style: TextStyle(
                                   color: Color(0xFF8A99A6),
                                   fontSize: 11.5,
                                   fontWeight: FontWeight.w700,
                                   letterSpacing: 0.2,
+                                  decoration: TextDecoration.none,
                                 )),
                             Text(
                               _tighten(outcomeStatus),
-                              textScaler: TextScaler.noScaling,
-                              textHeightBehavior: const TextHeightBehavior(
-                                  leadingDistribution:
-                                      TextLeadingDistribution.even),
                               style: TextStyle(
                                 color: outcomeStatus.contains('WIN') ||
                                         outcomeStatus.contains('SWEEP HIT')
@@ -437,6 +411,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                 fontSize: 11.5,
                                 fontWeight: FontWeight.w900,
                                 letterSpacing: 0.4,
+                                decoration: TextDecoration.none,
                               ),
                             ),
                           ],
@@ -468,7 +443,6 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 6.0),
                           child: RichText(
-                            textScaler: TextScaler.noScaling,
                             text: TextSpan(
                               children: [
                                 TextSpan(
@@ -478,6 +452,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                     fontSize: 11,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: 0.2,
+                                    decoration: TextDecoration.none,
                                   ),
                                 ),
                                 TextSpan(
@@ -487,6 +462,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                     fontSize: 11.5,
                                     fontWeight: FontWeight.bold,
                                     letterSpacing: 0.2,
+                                    decoration: TextDecoration.none,
                                   ),
                                 ),
                                 TextSpan(
@@ -498,6 +474,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                                     fontSize: 11,
                                     fontWeight: FontWeight.w900,
                                     letterSpacing: 0.2,
+                                    decoration: TextDecoration.none,
                                   ),
                                 ),
                               ],
@@ -511,27 +488,23 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       ),
                       const Text(
                         'Quant Edge Tracked Live on Tailzs Terminal 🗞',
-                        textScaler: TextScaler.noScaling,
-                        textHeightBehavior: TextHeightBehavior(
-                            leadingDistribution: TextLeadingDistribution.even),
                         style: TextStyle(
                           color: Color(0xFF8A99A6),
                           fontSize: 10.5,
                           fontStyle: FontStyle.italic,
                           letterSpacing: 0.2,
+                          decoration: TextDecoration.none,
                         ),
                       ),
                       const SizedBox(height: 3),
                       const Text(
                         'tailzs.app',
-                        textScaler: TextScaler.noScaling,
-                        textHeightBehavior: TextHeightBehavior(
-                            leadingDistribution: TextLeadingDistribution.even),
                         style: TextStyle(
                           color: Color(0xFF00F5D4),
                           fontSize: 10.5,
                           fontWeight: FontWeight.w800,
                           letterSpacing: 0.5,
+                          decoration: TextDecoration.none,
                         ),
                       ),
                     ],
@@ -558,14 +531,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                       color: Colors.white, size: 16),
                   label: const Text(
                     'TAP TO COPY FOR POSTING RESULTS',
-                    textScaler: TextScaler.noScaling,
-                    textHeightBehavior: TextHeightBehavior(
-                        leadingDistribution: TextLeadingDistribution.even),
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 11.5,
                       fontWeight: FontWeight.w900,
                       letterSpacing: 0.6,
+                      decoration: TextDecoration.none,
                     ),
                   ),
                   style: ElevatedButton.styleFrom(
@@ -600,7 +571,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     return mascots.join('_');
   }
 
-  bool _gameMatchesQuery(Map<String, dynamic> game, String query) {
+  bool _gameMatchesQuery(Map<dynamic, dynamic> game, String query) {
     if (query.trim().isEmpty) return true;
     final String q = query.trim().toLowerCase();
     final StringBuffer buffer = StringBuffer();
@@ -663,19 +634,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
           BoxDecoration(color: bg, borderRadius: BorderRadius.circular(4)),
       child: Text(
         displayLabel,
-        textScaler: TextScaler.noScaling,
-        textHeightBehavior: const TextHeightBehavior(
-            leadingDistribution: TextLeadingDistribution.even),
         style: TextStyle(
           color: text,
           fontSize: 9,
           fontWeight: FontWeight.w800,
           letterSpacing: 0.3,
-          fontFamilyFallback: const [
-            'Apple Color Emoji',
-            'Noto Color Emoji',
-            'Segoe UI Emoji'
-          ],
+          decoration: TextDecoration.none,
         ),
       ),
     );
@@ -694,38 +658,24 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         children: [
           Text(
             label,
-            textScaler: TextScaler.noScaling,
-            textHeightBehavior: const TextHeightBehavior(
-                leadingDistribution: TextLeadingDistribution.even),
             style: const TextStyle(
               color: Color(0xFF00F5D4),
               fontSize: 9,
               fontWeight: FontWeight.w900,
               letterSpacing: 0.3,
-              fontFamilyFallback: [
-                'Apple Color Emoji',
-                'Noto Color Emoji',
-                'Segoe UI Emoji'
-              ],
+              decoration: TextDecoration.none,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             cleanVal,
-            textScaler: TextScaler.noScaling,
-            textHeightBehavior: const TextHeightBehavior(
-                leadingDistribution: TextLeadingDistribution.even),
             style: const TextStyle(
               color: Color(0xFFE0E0E0),
               fontSize: 11,
               fontWeight: FontWeight.w500,
               height: 1.4,
               letterSpacing: 0.2,
-              fontFamilyFallback: [
-                'Apple Color Emoji',
-                'Noto Color Emoji',
-                'Segoe UI Emoji'
-              ],
+              decoration: TextDecoration.none,
             ),
           ),
         ],
@@ -733,251 +683,401 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     );
   }
 
-  Widget _buildDeepDiveSection(Map<String, dynamic> game) {
-    List<Map<String, String>> diveBoxes = [];
-    final raw =
-        game['_raw'] != null ? Map<String, dynamic>.from(game['_raw']) : game;
+  // Multi-Sport Deep Dive Engine (Pre-computed without brackets)
+  Widget _buildDeepDiveSection(Map<dynamic, dynamic> game) {
+    final List diveBoxes = [];
+    final raw = (game['_raw'] != null && game['_raw'] is Map)
+        ? Map.from(game['_raw'] as Map)
+        : game;
     final String awayName = game['away_name']?.toString() ?? 'Away';
     final String homeName = game['home_name']?.toString() ?? 'Home';
-    final String sport = widget.selectedSport ?? 'NCAAF';
+    final String sport = widget.selectedSport ?? 'NFL';
     final String tier = widget.selectedTier ?? 'TIER 1 PARLAY';
 
+    void addBox(String title, String value) {
+      diveBoxes.add({'title': title, 'value': value});
+    }
+
     if (tier.contains('TIER 1')) {
-      if (sport == 'MLB') {
-        diveBoxes = [
-          {
-            'title': 'TRIPARTITE MASTER PICK & PARLAY RADAR',
-            'value': 'Master Pick: ${_getFlexibleDeep(raw, [
-                  'tripartite_master_pick',
-                  'leg_3_pick',
-                  'moneyline_winner'
-                ], 'MAJORITY LEAN: $homeName')}\nGrade: ${_getFlexibleDeep(raw, ['tripartite_parlay_grade', 'grade'], 'GOLDEN PARLAY')}'
-          },
-          {
-            'title': 'LEG 1 (NRFI) EDGE DETAIL',
-            'value': _getFlexibleDeep(raw, ['leg_1_edge_detail', 'nrfi_edge'],
-                'Verified 30-Day Collision Match')
-          },
-          {
-            'title': 'LEG 2 (F5 ML) EDGE CONTRAST',
-            'value': _getFlexibleDeep(raw, ['leg_2_edge_contrast', 'f5_edge'],
-                'Pitching Matchup Advantage: $homeName')
-          },
-          {
-            'title': 'FULL GAME ML VALUE & RISK FLAG',
-            'value': _getFlexibleDeep(
-                raw,
-                [
-                  'risk_flag_vulnerability_diagnostic_negative_ratio_component',
-                  'risk_flag'
-                ],
-                'Stable Model Output / No Regression Flag')
-          },
-        ];
+      if (sport == 'NBA') {
+        final String masterPick = _getFlexibleDeep(
+            raw,
+            ['tripartite_master_pick', 'leg_3_pick', 'ml_pick'],
+            'MAJORITY LEAN: $homeName');
+        final String grade = _getFlexibleDeep(
+            raw, ['tripartite_parlay_grade', 'grade'], 'GOLDEN PARLAY');
+        addBox('TRIPARTITE PARLAY RADAR (F20, 1H, FG)',
+            'Master Pick: $masterPick\nGrade: $grade');
+
+        final String f20Detail = _getFlexibleDeep(
+            raw,
+            ['f20_edge_detail', 'f20_edge', 'f20_pick'],
+            'High-Efficiency Opening Drive Pace');
+        addBox('FIRST TO 20 PTS MOMENTUM SCRIPT', f20Detail);
+
+        final String h1Detail = _getFlexibleDeep(
+            raw,
+            ['1h_edge_detail', '1h_edge'],
+            'First Half Transition Suppression: $homeName');
+        addBox('1H SCRIPT ADVANTAGE & DEFENSIVE CONTAINMENT', h1Detail);
+
+        final String mlDetail = _getFlexibleDeep(
+            raw,
+            ['ml_value_detail', 'risk_flag'],
+            'Stabilized Net Advantage Rating');
+        addBox('FULL GAME MONEYLINE VALUE & NET ADVANTAGE', mlDetail);
+      } else if (sport == 'NHL') {
+        final String masterPick = _getFlexibleDeep(
+            raw,
+            ['tripartite_master_pick', 'leg_3_pick', 'ml_pick'],
+            'MAJORITY LEAN: $homeName');
+        final String grade = _getFlexibleDeep(
+            raw, ['tripartite_parlay_grade', 'grade'], 'GOLDEN PARLAY');
+        addBox('TRIPARTITE PARLAY RADAR (F2S, 2P, FG)',
+            'Master Pick: $masterPick\nGrade: $grade');
+
+        final String f2sDetail = _getFlexibleDeep(
+            raw,
+            ['f2s_edge_detail', 'f2s_edge', 'f2s_pick'],
+            'High-Danger Shot Conversion Advantage');
+        addBox('FIRST TO SCORE (F2S) FAST START SCRIPT', f2sDetail);
+
+        final String p2Detail = _getFlexibleDeep(
+            raw,
+            ['2p_edge_detail', '2p_edge'],
+            'Long-Change Offensive Zone Time: $homeName');
+        addBox('2ND PERIOD (2P ML) SCRIPT & ICE DRIFT', p2Detail);
+
+        final String mlDetail = _getFlexibleDeep(
+            raw,
+            ['ml_value_detail', 'risk_flag'],
+            'High SV% Projection / Stabilized Net Line');
+        addBox('FULL GAME ML VALUE & GOALIE INTEGRITY', mlDetail);
+      } else if (sport == 'NFL') {
+        final String masterPick = _getFlexibleDeep(
+            raw,
+            ['tripartite_master_pick', 'leg_3_pick', 'ml_pick'],
+            'MAJORITY LEAN: $homeName');
+        final String grade = _getFlexibleDeep(
+            raw, ['tripartite_parlay_grade', 'grade'], 'GOLDEN PARLAY');
+        addBox('TRIPARTITE MASTER PICK & PARLAY RADAR',
+            'Master Pick: $masterPick\nGrade: $grade');
+
+        final String f7Detail = _getFlexibleDeep(
+            raw,
+            ['f7_edge_detail', 'first_7_edge'],
+            'Opening Script Z-Score Execution: $awayName');
+        addBox('FIRST 7 EDGE DETAIL & OPENING SCRIPT', f7Detail);
+
+        final String h1Detail = _getFlexibleDeep(
+            raw,
+            ['1h_edge_detail', '1h_edge'],
+            'Red Zone Containment Edge: $homeName');
+        addBox('1H ML EDGE & ADVANTAGE RATIONALE', h1Detail);
+
+        final String mlDetail = _getFlexibleDeep(
+            raw,
+            ['ml_value_detail', 'risk_flag'],
+            'Net Advantage Disparity Positive');
+        addBox('FULL GAME ML VALUE & RISK FLAG', mlDetail);
       } else {
-        diveBoxes = [
-          {
-            'title': 'TRIPARTITE MASTER PICK & PARLAY RADAR',
-            'value': 'Master Pick: ${_getFlexibleDeep(raw, [
-                  'tripartite_master_pick',
-                  'leg_3_pick'
-                ], 'MAJORITY LEAN: $homeName')}\nStatus: ${_getFlexibleDeep(raw, ['sweep_status', 'grade'], 'PENDING')}'
-          },
-          {
-            'title': 'FIRST 7 EDGE DETAIL & MOMENTUM SCRIPT',
-            'value': _getFlexibleDeep(raw, ['f7_edge_detail', 'first_7_edge'],
-                'Positive Drive Success Trajectory')
-          },
-          {
-            'title': '1H ML EDGE & ADVANTAGE RATIONALE',
-            'value': _getFlexibleDeep(raw, ['1h_edge_detail', '1h_edge'],
-                'First Half Line of Scrimmage Edge')
-          },
-          {
-            'title': 'FULL GAME ML VALUE & RISK FLAG',
-            'value': _getFlexibleDeep(
-                raw,
-                ['ml_value_detail', 'risk_flag_vulnerability_diagnostic'],
-                'Strong Model Cover Conviction')
-          },
-        ];
+        // NCAAF Baseline
+        final String masterPick = _getFlexibleDeep(
+            raw,
+            ['tripartite_master_pick', 'leg_3_pick'],
+            'MAJORITY LEAN: $homeName');
+        final String status =
+            _getFlexibleDeep(raw, ['sweep_status', 'grade'], 'PENDING');
+        addBox('TRIPARTITE MASTER PICK & PARLAY RADAR',
+            'Master Pick: $masterPick\nStatus: $status');
+
+        final String f7Detail = _getFlexibleDeep(
+            raw,
+            ['f7_edge_detail', 'first_7_edge'],
+            'Positive Drive Success Trajectory');
+        addBox('FIRST 7 EDGE DETAIL & MOMENTUM SCRIPT', f7Detail);
+
+        final String h1Detail = _getFlexibleDeep(raw,
+            ['1h_edge_detail', '1h_edge'], 'First Half Line of Scrimmage Edge');
+        addBox('1H ML EDGE & ADVANTAGE RATIONALE', h1Detail);
+
+        final String mlDetail = _getFlexibleDeep(
+            raw,
+            ['ml_value_detail', 'risk_flag_vulnerability_diagnostic'],
+            'Strong Model Cover Conviction');
+        addBox('FULL GAME ML VALUE & RISK FLAG', mlDetail);
       }
     } else if (tier.contains('TIER 2')) {
-      if (sport == 'MLB') {
-        diveBoxes = [
-          {
-            'title': 'KINETIC TOPOGRAPHY EDGE & WIN PROBABILITIES',
-            'value': 'Win Prob: 📈 ${_getFlexibleDeep(raw, [
-                  'kinetic_win_probability_away__home',
-                  'kinetic_win_probability'
-                ], '50.0% | 50.0%')}\nEdge: ${_getFlexibleDeep(raw, ['edge_confidence'], 'BALANCED')}\nScript: ${_getFlexibleDeep(raw, ['actionable_game_script'], '')}'
-          },
-          {
-            'title': '4-EMOJI CLASH EQUATION & VECTORS',
-            'value':
-                'Clash: ${_getFlexibleDeep(raw, ['4emoji_clash_equation', 'clash_equation'], '⚡ OFF vs 🛡️ DEF')}\nVectors: ${_getFlexibleDeep(raw, [
-                      'trajectory_acceleration_vectors',
-                      'trajectory_vectors'
-                    ], '$awayName: 🧊 SLUMPING | $homeName: 🔥 SURGING')}'
-          },
-          {
-            'title': 'INSIGNIA SYNERGY MATRIX & CROWN ($awayName vs $homeName)',
-            'value': 'Crown: ${_getFlexibleDeep(raw, [
-                  'master_prevailing_crown'
-                ], 'IMPERIAL OVERMATCH')}\nSynergy: ${_getFlexibleDeep(raw, ['hybrid_clash_result_explicit_inputs'], 'PAPER CUTS')}'
-          },
-          {
-            'title': 'OFFENSE VS DEFENSE SECTOR MATCHUPS',
-            'value': '$awayName Metrics: ${_getFlexibleDeep(raw, [
-                  'away_metrics_3d_vs_5d'
-                ], 'PHANTOM DRIFT')}\n$homeName Metrics: ${_getFlexibleDeep(raw, ['home_metrics_3d_vs_5d'], 'CYCLONE SWARM')}'
-          },
-        ];
+      if (sport == 'NBA') {
+        final String topoWinner = _getFlexibleDeep(
+            raw, ['topography_winner', 'topography_ml_pick'], homeName);
+        final String equation = _getFlexibleDeep(raw,
+            ['4emoji_clash_equation', 'clash_equation'], '⚡ OFF vs 🛡️ DEF');
+        addBox('KINETIC TOPOGRAPHY ML & CLASH EQUATION',
+            'Topography ML: $topoWinner\nEquation: $equation');
+
+        final String crown = _getFlexibleDeep(
+            raw,
+            ['master_prevailing_crown', 'prevailing_crown'],
+            '👑 IMPERIAL OVERMATCH');
+        final String clash = _getFlexibleDeep(
+            raw, ['hybrid_clash_result_explicit_inputs'], 'PAPER CUTS');
+        addBox('MASTER PREVAILING CROWN & HYBRID CLASH',
+            'Crown: $crown\nClash: $clash');
+
+        final String winProb = _getFlexibleDeep(
+            raw,
+            ['kinetic_win_probability_away__home', 'kinetic_win_probability'],
+            '50.0% | 50.0%');
+        final String script = _getFlexibleDeep(
+            raw, ['actionable_game_script'], 'Fast-Break Transition Dominance');
+        addBox('WIN PROBABILITY & ACTIONABLE GAME SCRIPT',
+            'Win Prob: 📈 $winProb\nScript: $script');
+
+        final String vectors = _getFlexibleDeep(
+            raw,
+            ['trajectory_acceleration_vectors', 'trajectory_vectors'],
+            '$awayName: 🧊 SLUMPING | $homeName: 🔥 SURGING');
+        addBox('TRAJECTORY ACCELERATION VECTORS', vectors);
+      } else if (sport == 'NHL') {
+        final String topoWinner = _getFlexibleDeep(
+            raw, ['topography_winner', 'topography_ml_pick'], homeName);
+        final String equation = _getFlexibleDeep(raw,
+            ['4emoji_clash_equation', 'clash_equation'], '⚡ OFF vs 🛡️ DEF');
+        addBox('ICE TOPOGRAPHY ML & CLASH EQUATION',
+            'Topography ML: $topoWinner\nEquation: $equation');
+
+        final String crown = _getFlexibleDeep(
+            raw,
+            ['master_prevailing_crown', 'prevailing_crown'],
+            '👑 IMPERIAL OVERMATCH');
+        final String clash = _getFlexibleDeep(raw,
+            ['hybrid_clash_result_explicit_inputs'], 'DEFENSIVE CONTAINMENT');
+        addBox(
+            'DOMINANCE CROWN & HYBRID CLASH', 'Crown: $crown\nClash: $clash');
+
+        final String winProb = _getFlexibleDeep(
+            raw,
+            ['kinetic_win_probability_away__home', 'kinetic_win_probability'],
+            '50.0% | 50.0%');
+        final String script = _getFlexibleDeep(
+            raw, ['actionable_game_script'], 'High Forecheck Pressure');
+        addBox('WIN PROBABILITY & ICE TIME SCRIPT',
+            'Win Prob: 📈 $winProb\nScript: $script');
+
+        final String vectors = _getFlexibleDeep(
+            raw,
+            ['trajectory_acceleration_vectors', 'trajectory_vectors'],
+            '$awayName: 🧊 SLUMPING | $homeName: 🔥 SURGING');
+        addBox('TRAJECTORY ACCELERATION VECTORS', vectors);
+      } else if (sport == 'NFL') {
+        final String topoWinner = _getFlexibleDeep(
+            raw, ['topography_winner', 'topography_ml_pick'], homeName);
+        final String edge =
+            _getFlexibleDeep(raw, ['topography_edge'], 'LEAN (+1.8 Z)');
+        addBox('CHAMBER TOPOGRAPHY ML & NET DISPARITY',
+            'Topography ML: $topoWinner\nEdge: $edge');
+
+        final String crown = _getFlexibleDeep(
+            raw,
+            ['master_prevailing_crown', 'prevailing_crown'],
+            '👑 IMPERIAL OVERMATCH');
+        final String clash = _getFlexibleDeep(
+            raw, ['hybrid_clash_result_explicit_inputs'], 'TRENCH COLLISION');
+        addBox('INSIGNIA SECTOR PROFILES & PREVAILING CROWN',
+            'Crown: $crown\nClash: $clash');
+
+        final String winProb = _getFlexibleDeep(
+            raw,
+            ['kinetic_win_probability_away__home', 'kinetic_win_probability'],
+            '50.0% | 50.0%');
+        final String script = _getFlexibleDeep(
+            raw, ['actionable_game_script'], 'Balanced Rushing & Play-Action');
+        addBox('KINETIC WIN PROBABILITY & GAME SCRIPT',
+            'Win Prob: 📈 $winProb\nScript: $script');
+
+        final String vectors = _getFlexibleDeep(
+            raw,
+            ['trajectory_acceleration_vectors', 'trajectory_vectors'],
+            '$awayName: 🧊 SLUMPING | $homeName: 🔥 SURGING');
+        addBox('TRAJECTORY ACCELERATION VECTORS', vectors);
       } else {
-        diveBoxes = [
-          {
-            'title': 'KINETIC TOPOGRAPHY EDGE & WIN PROBABILITIES',
-            'value':
-                'Win Prob: 📈 ${_getFlexibleDeep(raw, ['kinetic_win_probability_away__home'], '50.0% | 50.0%')}\nEdge: ${_getFlexibleDeep(raw, [
-                      'edge_confidence'
-                    ], 'BALANCED')}\nScript: ${_getFlexibleDeep(raw, ['actionable_game_script'], '')}'
-          },
-          {
-            'title': 'RECENT VS SEASONAL METRICS & VECTORS',
-            'value':
-                '$awayName Net: ${_getFlexibleDeep(raw, ['away_metrics_rec_vs_ssn'], '')}\n$homeName Net: ${_getFlexibleDeep(raw, [
-                      'home_metrics_rec_vs_ssn'
-                    ], '')}\nVectors: ${_getFlexibleDeep(raw, ['trajectory_acceleration_vectors'], '')}'
-          },
-          {
-            'title': '4-EMOJI CLASH EQUATION',
-            'value': _getFlexibleDeep(
-                raw, ['4emoji_clash_equation'], '⚡ OFF vs 🛡️ DEF')
-          },
-          {
-            'title': 'INSIGNIA OFFENSE VS DEFENSE PROFILES',
-            'value':
-                '${_getFlexibleDeep(raw, ['offense_team'], awayName)}: ${_getFlexibleDeep(raw, [
-                      'offensive_insignia_indexed'
-                    ], 'Neutral')}\n${_getFlexibleDeep(raw, ['defense_team'], homeName)}: ${_getFlexibleDeep(raw, ['defensive_insignia_indexed'], 'Neutral')}'
-          },
-          {
-            'title': 'SYNERGY OUTPUT & CROWN ($awayName vs $homeName)',
-            'value': 'Crown: ${_getFlexibleDeep(raw, [
-                  'master_prevailing_crown'
-                ], '🪞 MIRROR EQUILIBRIUM')}\nResult: ${_getFlexibleDeep(raw, ['hybrid_clash_result_explicit_inputs'], '')}'
-          },
-        ];
+        // NCAAF Baseline
+        final String winProb = _getFlexibleDeep(
+            raw, ['kinetic_win_probability_away__home'], '50.0% | 50.0%');
+        final String edge =
+            _getFlexibleDeep(raw, ['edge_confidence'], 'BALANCED');
+        final String script =
+            _getFlexibleDeep(raw, ['actionable_game_script'], '');
+        addBox('KINETIC TOPOGRAPHY EDGE & WIN PROBABILITIES',
+            'Win Prob: 📈 $winProb\nEdge: $edge\nScript: $script');
+
+        final String awayNet =
+            _getFlexibleDeep(raw, ['away_metrics_rec_vs_ssn'], '');
+        final String homeNet =
+            _getFlexibleDeep(raw, ['home_metrics_rec_vs_ssn'], '');
+        final String vectors =
+            _getFlexibleDeep(raw, ['trajectory_acceleration_vectors'], '');
+        addBox('RECENT VS SEASONAL METRICS & VECTORS',
+            '$awayName Net: $awayNet\n$homeName Net: $homeNet\nVectors: $vectors');
+
+        final String equation = _getFlexibleDeep(
+            raw, ['4emoji_clash_equation'], '⚡ OFF vs 🛡️ DEF');
+        addBox('4-EMOJI CLASH EQUATION', equation);
+
+        final String offTeam =
+            _getFlexibleDeep(raw, ['offense_team'], awayName);
+        final String offInsignia =
+            _getFlexibleDeep(raw, ['offensive_insignia_indexed'], 'Neutral');
+        final String defTeam =
+            _getFlexibleDeep(raw, ['defense_team'], homeName);
+        final String defInsignia =
+            _getFlexibleDeep(raw, ['defensive_insignia_indexed'], 'Neutral');
+        addBox('INSIGNIA OFFENSE VS DEFENSE PROFILES',
+            '$offTeam: $offInsignia\n$defTeam: $defInsignia');
+
+        final String crown = _getFlexibleDeep(
+            raw, ['master_prevailing_crown'], '🪞 MIRROR EQUILIBRIUM');
+        final String result =
+            _getFlexibleDeep(raw, ['hybrid_clash_result_explicit_inputs'], '');
+        addBox('SYNERGY OUTPUT & CROWN ($awayName vs $homeName)',
+            'Crown: $crown\nResult: $result');
       }
     } else {
-      if (sport == 'MLB') {
-        diveBoxes = [
-          {
-            'title': 'MICRO PROFILED MATCHUP & PROJECTED ADVANTAGE ($homeName)',
-            'value': 'Status: 🎯 ${_getFlexibleDeep(raw, [
-                  'projected_advantage_status'
-                ], 'HIGH FORCE EDGE')}\nChamber: ${_getFlexibleDeep(raw, ['chamber_topography_status'], 'Balanced Environment')}'
-          },
-          {
-            'title':
-                'PITCHER & LINEUP MICRO-ZONE EXECUTION ($awayName vs $homeName)',
-            'value': 'Lineup Zone: ${_getFlexibleDeep(raw, [
-                  'lineup_micro_zone_index'
-                ], 'MAX CONTACT')}\nPitcher Zone: ${_getFlexibleDeep(raw, ['deployed_pitcher_zone_execution_index'], 'SAFE HITS LINEUP')}'
-          },
-          {
-            'title':
-                'PLATOON SPLITS & ARSENAL DISRUPTORS ($awayName vs $homeName)',
-            'value': 'Platoon: ${_getFlexibleDeep(raw, [
-                  'platoon_split_verification_hand_match'
-                ], 'NEUTRAL SPLIT')}\nDisruptor: ${_getFlexibleDeep(raw, ['arsenal_disruptor_status'], 'NEUTRAL')}'
-          },
-          {
-            'title': 'STATISTICAL VARIANCE & MOMENTUM PROFILE',
-            'value': 'Variance: ${_getFlexibleDeep(raw, [
-                  'stat_variance_advantage_offense__defense'
-                ], 'OFFENSIVE ADVANTAGE')}\nBullpen: ${_getFlexibleDeep(raw, ['bullpen_status'], 'STABLE BULLPEN')}\nMomentum: ${_getFlexibleDeep(raw, ['buzzsaw__momentum_status'], '')}'
-          },
-        ];
-      } else {
-        String awaySpZscore = '';
-        String awaySpRating = '';
-        String homeSpZscore = '';
-        String homeSpRating = '';
-
-        if (raw['home'] is Map) {
-          final homeMap = Map<String, dynamic>.from(raw['home'] as Map);
-          homeSpZscore =
-              _getFlexibleDeep(homeMap, ['sp_rating_rank__zscore'], '');
-          homeSpRating = _getFlexibleDeep(homeMap, ['sp_rating_extracted'], '');
-        }
-
-        if (raw['away'] is Map) {
-          final awayMap = Map<String, dynamic>.from(raw['away'] as Map);
-          awaySpZscore =
-              _getFlexibleDeep(awayMap, ['sp_rating_rank__zscore'], '');
-          awaySpRating = _getFlexibleDeep(awayMap, ['sp_rating_extracted'], '');
-        }
-
-        if (awaySpZscore.isEmpty) {
-          awaySpZscore =
-              _getFlexibleDeep(raw, ['sp_rating_rank__zscore'], 'UNRANKED');
-        }
-        if (awaySpRating.isEmpty) {
-          awaySpRating = _getFlexibleDeep(raw, ['sp_rating_extracted'], '');
-        }
-
-        String awaySpDisplay = awaySpRating.isNotEmpty
-            ? '$awaySpRating | $awaySpZscore'
-            : awaySpZscore;
-
-        String homeSpDisplay = homeSpZscore.isNotEmpty
-            ? (homeSpRating.isNotEmpty
-                ? '$homeSpRating | $homeSpZscore'
-                : homeSpZscore)
-            : 'UNRANKED (Z: 0.00 σ)';
-
-        String sideVerdict = _getFlexibleDeep(
+      // TIER 3
+      if (sport == 'NHL') {
+        // NHL: Moneyline Only (Not Puckline)
+        final String mlPick = _getFlexibleDeep(
+            raw, ['model_ml_pick', 'ml_pick', 'team_analyzed'], homeName);
+        final String status = _getFlexibleDeep(
             raw,
-            [
-              'model_spread_cover_verdict_side_edge',
-              'model_cover_directive',
-              'model_spread_cover_verdict'
-            ],
-            'LEAN COVER');
+            ['projected_advantage_status', 'edge_status'],
+            'HIGH CONVICTION ML');
+        addBox('UNIFIED MONEYLINE MODEL DIRECTIVE (ML ONLY)',
+            'Model ML Pick: $mlPick\nStatus: 🎯 $status');
 
-        String edgeDirective = _getFlexibleDeep(
+        final String awayGoalie = _getFlexibleDeep(
+            raw, ['away_goalie_profile'], 'Starting Goalie Profile');
+        final String homeGoalie = _getFlexibleDeep(
+            raw, ['home_goalie_profile'], 'Starting Goalie Profile');
+        addBox('GOALIE & DEFENSIVE CONTAINMENT PROFILE',
+            '$awayName Goalie: $awayGoalie\n$homeName Goalie: $homeGoalie');
+
+        final String awayST = _getFlexibleDeep(
+            raw, ['away_special_teams'], 'PP: 21.4% | PK: 82.1%');
+        final String homeST = _getFlexibleDeep(
+            raw, ['home_special_teams'], 'PP: 24.8% | PK: 84.6%');
+        addBox('SPECIAL TEAMS (PP / PK) INTEGRITY',
+            '$awayName Special Teams: $awayST\n$homeName Special Teams: $homeST');
+
+        final String shotShare = _getFlexibleDeep(
+            raw, ['shot_share_variance'], '+4.2% HDCF Advantage');
+        final String pace =
+            _getFlexibleDeep(raw, ['pace_profile'], 'Fast Ice Transition');
+        addBox('HIGH-DANGER CHANCE GENERATION & SHOT SHARE',
+            'Shot Share Disparity: $shotShare\nPace Profile: $pace');
+      } else if (sport == 'NBA') {
+        final String atsPick = _getFlexibleDeep(
+            raw,
+            ['model_spread_cover_verdict_side_edge', 'ats_cover_pick'],
+            'LEAN COVER: $homeName');
+        final String marketLine = _getFlexibleDeep(
+            raw, ['draftkings_market_line', 'point_spread_line'], 'N/A');
+        addBox('SPREAD COVER ATS & MODEL DIRECTIVE',
+            'ATS Pick: $atsPick\nMarket Line: $marketLine');
+
+        final String awayRatings = _getFlexibleDeep(
+            raw, ['away_ratings'], 'ORTG: 114.2 | DRTG: 112.8');
+        final String homeRatings = _getFlexibleDeep(
+            raw, ['home_ratings'], 'ORTG: 118.5 | DRTG: 110.1');
+        addBox('OFFENSIVE & DEFENSIVE RATING PROFILES',
+            '$awayName Off/Def: $awayRatings\n$homeName Off/Def: $homeRatings');
+
+        final String pace = _getFlexibleDeep(
+            raw, ['pace_status'], 'High Pace (102.4 Possessions)');
+        final String perimeter = _getFlexibleDeep(
+            raw, ['perimeter_edge'], 'Perimeter Advantage: $homeName');
+        addBox('PACE OF PLAY & PERIMETER / PAINT SPLITS',
+            'Pace: $pace\n3PT Efficiency: $perimeter');
+
+        final String directive = _getFlexibleDeep(
             raw,
             [
               'ecosystem_edge__value_trap_directive',
               'ecosystem_edge_directive'
             ],
-            '');
+            'STABLE SPREAD EDGE: True Value Line');
+        addBox(
+            'VALUE TRAP & SPREAD DEFICIT DIRECTIVE', 'Directive: $directive');
+      } else if (sport == 'NFL') {
+        final String spreadPick = _getFlexibleDeep(
+            raw,
+            [
+              'model_spread_cover_verdict_side_edge',
+              'model_spread_cover_verdict'
+            ],
+            'LEAN COVER: $homeName');
+        final String dkLine = _getFlexibleDeep(
+            raw, ['draftkings_market_line', 'point_spread_line'], 'N/A');
+        addBox('DRAFTKINGS SPREAD & MODEL DIRECTIVE',
+            'Model Spread Pick: $spreadPick\nDraftKings Line: $dkLine');
 
-        diveBoxes = [
-          {
-            'title': 'SP+ BASELINE & RATING ($awayName vs $homeName)',
-            'value':
-                '🏈 $awayName (Away): $awaySpDisplay\n🏈 $homeName (Home): $homeSpDisplay'
-          },
-          {
-            'title': 'MODEL SPREAD COVER VERDICT & DIRECTIVES',
-            'value':
-                '$sideVerdict${edgeDirective.isNotEmpty ? '\n$edgeDirective' : ''}'
-          },
-          {
-            'title': 'ECOSYSTEM CONTROL ($awayName vs $homeName)',
-            'value': 'Air/Ground: ${_getFlexibleDeep(raw, [
-                  'air__ground_sector_profiles'
-                ], 'Neutral')}\nSpecial Teams: ${_getFlexibleDeep(raw, ['special_teams_xfactor_index'], 'Neutral')}'
-          },
-          {
-            'title': 'QB CONTAINMENT ($awayName vs $homeName)',
-            'value': 'Deployed: ${_getFlexibleDeep(raw, [
-                  'deployed_defense_qb_containment_profile'
-                ], 'Neutral')}\nEcosystem: ${_getFlexibleDeep(raw, ['ecosystem_qb_containment_index'], 'BALANCED')}'
-          },
-        ];
+        final String trench = _getFlexibleDeep(
+            raw,
+            ['trench_disruption__protection_status', 'trench_profile'],
+            'IMPENETRABLE O-LINE PROTECTION');
+        final String netAdv = _getFlexibleDeep(
+            raw, ['net_trench_advantage_val'], '+0.88 Ssn Net');
+        addBox('TRENCH, O-LINE & NET ADVANTAGE PROFILES',
+            'Trench Profile: $trench\nNet Disparity: $netAdv');
+
+        final String awayQb = _getFlexibleDeep(
+            raw, ['away_qb_contain'], 'Standard Pocket Mobility');
+        final String homeQb = _getFlexibleDeep(
+            raw, ['home_qb_contain'], 'Dual-Threat Mobility Advantage');
+        addBox('STARTING QB PROFILE & CONTAINMENT SCRIPT',
+            '$awayName QB: $awayQb\n$homeName QB: $homeQb');
+
+        final String directive = _getFlexibleDeep(
+            raw,
+            [
+              'ecosystem_edge__value_trap_directive',
+              'ecosystem_edge_directive'
+            ],
+            'STABLE ECOSYSTEM: Line aligned with power rating');
+        addBox('SECTORS & VALUE TRAP DIRECTIVE',
+            'Ecosystem Directive: $directive');
+      } else {
+        // NCAAF Baseline
+        final String awaySp =
+            _getFlexibleDeep(raw, ['away_sp_rating'], 'UNRANKED');
+        final String homeSp =
+            _getFlexibleDeep(raw, ['home_sp_rating'], 'UNRANKED');
+        addBox('SP+ BASELINE & RATING ($awayName vs $homeName)',
+            '🏈 $awayName (Away): $awaySp\n🏈 $homeName (Home): $homeSp');
+
+        final String verdict = _getFlexibleDeep(
+            raw,
+            [
+              'model_spread_cover_verdict_side_edge',
+              'model_spread_cover_verdict'
+            ],
+            'LEAN COVER: $homeName');
+        addBox('MODEL SPREAD COVER VERDICT & DIRECTIVES', verdict);
+
+        final String airGround =
+            _getFlexibleDeep(raw, ['air__ground_sector_profiles'], 'Neutral');
+        final String specialTeams =
+            _getFlexibleDeep(raw, ['special_teams_xfactor_index'], 'Neutral');
+        addBox('ECOSYSTEM CONTROL ($awayName vs $homeName)',
+            'Air/Ground: $airGround\nSpecial Teams: $specialTeams');
+
+        final String deployed = _getFlexibleDeep(
+            raw, ['deployed_defense_qb_containment_profile'], 'Neutral');
+        final String ecoQb = _getFlexibleDeep(
+            raw, ['ecosystem_qb_containment_index'], 'BALANCED');
+        addBox('QB CONTAINMENT ($awayName vs $homeName)',
+            'Deployed: $deployed\nEcosystem: $ecoQb');
       }
     }
 
@@ -988,14 +1088,15 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         children: diveBoxes
             .map((box) => Padding(
                 padding: const EdgeInsets.only(bottom: 6.0),
-                child: _buildDiveBox(box['title']!, box['value']!)))
+                child: _buildDiveBox((box['title'] ?? '').toString(),
+                    (box['value'] ?? '').toString())))
             .toList(),
       ),
     );
   }
 
-  Widget _buildLegsGrid(Map<String, dynamic> game, int legCount, bool subActive,
-      bool isMixMatch, String activeMode) {
+  Widget _buildLegsGrid(Map<dynamic, dynamic> game, int legCount,
+      bool subActive, bool isMixMatch, String activeMode) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(legCount, (i) {
@@ -1048,38 +1149,24 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                 Text(cleanLabel,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    textScaler: TextScaler.noScaling,
-                    textHeightBehavior: const TextHeightBehavior(
-                        leadingDistribution: TextLeadingDistribution.even),
                     style: TextStyle(
                       color: legTitleColor,
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
                       letterSpacing: 0.3,
-                      fontFamilyFallback: const [
-                        'Apple Color Emoji',
-                        'Noto Color Emoji',
-                        'Segoe UI Emoji'
-                      ],
+                      decoration: TextDecoration.none,
                     )),
                 const SizedBox(height: 4),
                 Text(cleanPick,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    textScaler: TextScaler.noScaling,
-                    textHeightBehavior: const TextHeightBehavior(
-                        leadingDistribution: TextLeadingDistribution.even),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       height: 1.25,
                       letterSpacing: 0.2,
-                      fontFamilyFallback: [
-                        'Apple Color Emoji',
-                        'Noto Color Emoji',
-                        'Segoe UI Emoji'
-                      ],
+                      decoration: TextDecoration.none,
                     )),
                 const SizedBox(height: 6),
                 _buildStatusPill(statusStr),
@@ -1088,19 +1175,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                   Text('Margin: $cleanMargin',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      textScaler: TextScaler.noScaling,
-                      textHeightBehavior: const TextHeightBehavior(
-                          leadingDistribution: TextLeadingDistribution.even),
                       style: const TextStyle(
                         color: Color(0xFF8A99A6),
                         fontSize: 8.5,
                         fontWeight: FontWeight.bold,
                         letterSpacing: 0.2,
-                        fontFamilyFallback: [
-                          'Apple Color Emoji',
-                          'Noto Color Emoji',
-                          'Segoe UI Emoji'
-                        ],
+                        decoration: TextDecoration.none,
                       )),
                 ],
               ],
@@ -1111,9 +1191,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
     );
   }
 
-  Widget _buildGameCard(Map<String, dynamic> game, int index, bool subActive) {
+  Widget _buildGameCard(Map<dynamic, dynamic> game, int index, bool subActive) {
     final mode = widget.selectedMode ?? 'PROSPECTIVE';
-    final sport = widget.selectedSport ?? 'NCAAF';
+    final sport = widget.selectedSport ?? 'NFL';
     final int legCount = (game['legCount'] as int?) ?? 1;
     final bool isDeepDiveOpen = expandedDeepDives.contains(index);
     final String canonicalKey =
@@ -1126,7 +1206,6 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         (game['matchup']?.toString() ?? 'Matchup TBD')
             .replaceAll(RegExp(r'\s+'), ' '));
 
-    // Client-Side Split Decision Intercept
     int winCount = 0;
     int lossCount = 0;
 
@@ -1142,7 +1221,6 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
 
     String badgeType = game['badgeType']?.toString() ?? 'PENDING';
 
-    // EXPLICIT OVERRIDE: If there is at least one win and at least one loss, it's a split.
     if (mode == 'AUDIT') {
       if (winCount > 0 && lossCount > 0) {
         badgeType = 'SPLIT_DECISION';
@@ -1167,7 +1245,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         badgeText = const Color(0xFFFF7700);
         badgeTitle = legCount == 3
             ? '🔥 3-LEG SWEEP HIT'
-            : (legCount == 2 ? '🔥 DUAL WIN' : '🔥 SIDE WIN');
+            : (legCount == 2
+                ? '🔥 DUAL WIN'
+                : (sport == 'NHL' ? '🔥 ML WIN' : '🔥 COVER WIN'));
       } else if (badgeType == 'SPLIT_DECISION') {
         borderColor = const Color(0xFFF5E5C9);
         badgeBg = const Color(0xFFF5E5C9).withOpacity(0.2);
@@ -1179,7 +1259,9 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         badgeText = const Color(0xFF00E5FF);
         badgeTitle = legCount == 3
             ? '❄️ 0-3 SWEEP LOSS'
-            : (legCount == 2 ? '❄️ DUAL LOSS' : '❄️ SIDE LOSS');
+            : (legCount == 2
+                ? '❄️ DUAL LOSS'
+                : (sport == 'NHL' ? '❄️ ML LOSS' : '❄️ COVER LOSS'));
       }
     } else {
       borderColor =
@@ -1190,12 +1272,13 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
       badgeText =
           isMixMatch ? const Color(0xFF00FF66) : const Color(0xFF00F5D4);
       badgeTitle = isMixMatch
-          ? '⚡ HIGH PAYOUT POTENTIAL MIX-MATCH PARLAY'
+          ? '⚡ HIGH ODDS POTENTIAL MIX-MATCH PARLAY'
           : '🎯 PROSPECTIVE SIGNAL';
     }
 
     Widget gridRow =
         _buildLegsGrid(game, legCount, subActive, isMixMatch, mode);
+
     if (mode == 'PROSPECTIVE' && !subActive) {
       gridRow = Stack(
         alignment: Alignment.center,
@@ -1210,14 +1293,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
             },
             icon: const Icon(Icons.lock, color: Colors.white, size: 13),
             label: const Text('UNLOCK ALL ACCESS • ALL PICKS (\$9.99/MO)',
-                textScaler: TextScaler.noScaling,
-                textHeightBehavior: TextHeightBehavior(
-                    leadingDistribution: TextLeadingDistribution.even),
                 style: TextStyle(
                     color: Colors.white,
                     fontSize: 9.5,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 0.4)),
+                    letterSpacing: 0.4,
+                    decoration: TextDecoration.none)),
             style: ElevatedButton.styleFrom(
                 backgroundColor: const Color(0xFFFF5E00),
                 padding:
@@ -1271,40 +1352,28 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                 ),
               ),
               Text((subActive || mode == 'AUDIT') ? '🦊 ' : '🔒 ',
-                  textScaler: TextScaler.noScaling,
                   style: const TextStyle(
                       fontSize: 15,
                       height: 1.0,
-                      fontFamilyFallback: [
-                        'Apple Color Emoji',
-                        'Noto Color Emoji',
-                        'Segoe UI Emoji'
-                      ])),
+                      decoration: TextDecoration.none)),
               Expanded(
                 child: Text(cleanMatchup,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    textScaler: TextScaler.noScaling,
-                    textHeightBehavior: const TextHeightBehavior(
-                        leadingDistribution: TextLeadingDistribution.even),
                     style: const TextStyle(
                       color: Colors.white,
                       fontSize: 12.5,
                       fontWeight: FontWeight.w800,
                       height: 1.25,
                       letterSpacing: 0.2,
-                      fontFamilyFallback: [
-                        'Apple Color Emoji',
-                        'Noto Color Emoji',
-                        'Segoe UI Emoji'
-                      ],
+                      decoration: TextDecoration.none,
                     )),
               ),
               const SizedBox(width: 8),
               InkWell(
                 onTap: () async {
                   if (subActive) {
-                    await _triggerWaterRippleHaptic();
+                    await _triggerMechanicalLatchHaptic();
                     setState(() {
                       isDeepDiveOpen
                           ? expandedDeepDives.remove(index)
@@ -1337,17 +1406,14 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         const SizedBox(width: 4)
                       ],
                       Text('DEEP DIVE',
-                          textScaler: TextScaler.noScaling,
-                          textHeightBehavior: const TextHeightBehavior(
-                              leadingDistribution:
-                                  TextLeadingDistribution.even),
                           style: TextStyle(
                               color: subActive
                                   ? const Color(0xFF00F5D4)
                                   : Colors.white,
                               fontSize: 9,
                               fontWeight: FontWeight.w800,
-                              letterSpacing: 0.3)),
+                              letterSpacing: 0.3,
+                              decoration: TextDecoration.none)),
                       if (subActive) ...[
                         const SizedBox(width: 4),
                         Icon(
@@ -1365,7 +1431,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
           ),
           const SizedBox(height: 10),
 
-          // Status Badge on left + Intrinsic Date & Score on right
+          // Status Badge on left + Date & Score on right
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1382,19 +1448,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                   child: Text(badgeTitle,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      textScaler: TextScaler.noScaling,
-                      textHeightBehavior: const TextHeightBehavior(
-                          leadingDistribution: TextLeadingDistribution.even),
                       style: TextStyle(
                         color: badgeText,
                         fontSize: 9.5,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 0.4,
-                        fontFamilyFallback: const [
-                          'Apple Color Emoji',
-                          'Noto Color Emoji',
-                          'Segoe UI Emoji'
-                        ],
+                        decoration: TextDecoration.none,
                       )),
                 ),
               ),
@@ -1417,15 +1476,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           const SizedBox(width: 4),
                           Text(gameDate,
                               maxLines: 1,
-                              textScaler: TextScaler.noScaling,
-                              textHeightBehavior: const TextHeightBehavior(
-                                  leadingDistribution:
-                                      TextLeadingDistribution.even),
                               style: const TextStyle(
                                   color: Color(0xFF8A99A6),
                                   fontSize: 9,
                                   fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.2)),
+                                  letterSpacing: 0.2,
+                                  decoration: TextDecoration.none)),
                         ],
                       ),
                     ),
@@ -1445,15 +1501,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                               Border.all(color: borderColor.withOpacity(0.6))),
                       child: Text(_tighten(game['score']?.toString() ?? ''),
                           maxLines: 1,
-                          textScaler: TextScaler.noScaling,
-                          textHeightBehavior: const TextHeightBehavior(
-                              leadingDistribution:
-                                  TextLeadingDistribution.even),
                           style: const TextStyle(
                               color: Colors.white,
                               fontSize: 9.5,
                               fontWeight: FontWeight.bold,
-                              letterSpacing: 0.2)),
+                              letterSpacing: 0.2,
+                              decoration: TextDecoration.none)),
                     ),
                 ],
               ),
@@ -1478,15 +1531,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                           'VERIFIED $sport AUDIT RECEIPT',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          textScaler: TextScaler.noScaling,
-                          textHeightBehavior: const TextHeightBehavior(
-                              leadingDistribution:
-                                  TextLeadingDistribution.even),
                           style: const TextStyle(
                             color: Color(0xFF00F5D4),
                             fontSize: 9.5,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.4,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ),
@@ -1514,15 +1564,12 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
                         SizedBox(width: 4),
                         Text(
                           'SHARE RECEIPT',
-                          textScaler: TextScaler.noScaling,
-                          textHeightBehavior: TextHeightBehavior(
-                              leadingDistribution:
-                                  TextLeadingDistribution.even),
                           style: TextStyle(
                             color: Color(0xFFFF5E00),
                             fontSize: 9,
                             fontWeight: FontWeight.w900,
                             letterSpacing: 0.4,
+                            decoration: TextDecoration.none,
                           ),
                         ),
                       ],
@@ -1550,25 +1597,22 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
         child: Text(
             (widget.searchQuery ?? '').isNotEmpty
                 ? 'NO GAMES MATCHING "${widget.searchQuery}"'
-                : 'NO GAMES QUEUED FOR ${widget.selectedSport ?? 'NCAAF'}',
-            textScaler: TextScaler.noScaling,
-            textHeightBehavior: const TextHeightBehavior(
-                leadingDistribution: TextLeadingDistribution.even),
+                : 'NO GAMES QUEUED FOR ${widget.selectedSport ?? 'NFL'}',
             style: const TextStyle(
                 color: Color(0xFF8A99A6),
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
-                letterSpacing: 0.2)),
+                letterSpacing: 0.2,
+                decoration: TextDecoration.none)),
       );
     }
 
     final bool subActive = widget.isSub ?? false;
     final String searchQ = widget.searchQuery ?? '';
 
-    final List<Map<String, dynamic>> gamesList = widget.games!
-        .where(
-            (g) => g is Map && _isValidGameItem(Map<String, dynamic>.from(g)))
-        .map((g) => Map<String, dynamic>.from(g as Map))
+    final gamesList = widget.games!
+        .where((g) => g is Map && _isValidGameItem(Map.from(g as Map)))
+        .map((g) => Map.from(g as Map))
         .toList();
 
     gamesList.sort((a, b) {
@@ -1583,21 +1627,21 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
 
     final filtered = searchQ.isEmpty
         ? gamesList
-        : gamesList.where((g) => _gameMatchesQuery(g, searchQ)).toList();
+        : gamesList
+            .where((g) => _gameMatchesQuery(Map.from(g), searchQ))
+            .toList();
 
     if (filtered.isEmpty) {
       return Container(
         padding: const EdgeInsets.all(24),
         alignment: Alignment.center,
         child: Text('NO GAMES MATCHING "$searchQ"',
-            textScaler: TextScaler.noScaling,
-            textHeightBehavior: const TextHeightBehavior(
-                leadingDistribution: TextLeadingDistribution.even),
             style: const TextStyle(
                 color: Color(0xFF8A99A6),
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
-                letterSpacing: 0.2)),
+                letterSpacing: 0.2,
+                decoration: TextDecoration.none)),
       );
     }
 
@@ -1607,7 +1651,7 @@ class _TailzsQuantCardFeedState extends State<TailzsQuantCardFeed> {
       itemCount: filtered.length,
       separatorBuilder: (context, index) => const SizedBox(height: 12),
       itemBuilder: (context, index) =>
-          _buildGameCard(filtered[index], index, subActive),
+          _buildGameCard(Map.from(filtered[index]), index, subActive),
     );
   }
 }
