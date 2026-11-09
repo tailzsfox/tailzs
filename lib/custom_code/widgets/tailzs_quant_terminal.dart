@@ -1132,7 +1132,27 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                           ),
                         ),
                         const SizedBox(height: 14),
-                        if (!isGuest)
+                        if (isGuest)
+                          ElevatedButton.icon(
+                            onPressed: () {
+                              Navigator.pop(modalContext);
+                              _openLoginScreen(parentContext);
+                            },
+                            icon: const Icon(Icons.login,
+                                color: Color(0xFF080C0E), size: 16),
+                            label: const Text('SIGN IN / REGISTER TO UNLOCK',
+                                style: TextStyle(
+                                    color: Color(0xFF080C0E),
+                                    fontSize: 11.5,
+                                    fontWeight: FontWeight.w900)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF00F5D4),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                            ),
+                          )
+                        else ...[
                           ElevatedButton.icon(
                             onPressed: () async {
                               Navigator.pop(modalContext);
@@ -1153,8 +1173,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                                   borderRadius: BorderRadius.circular(10)),
                             ),
                           ),
-                        const SizedBox(height: 10),
-                        if (!isGuest)
+                          const SizedBox(height: 10),
                           OutlinedButton.icon(
                             onPressed: () {
                               showDialog(
@@ -1212,6 +1231,7 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
                                   borderRadius: BorderRadius.circular(10)),
                             ),
                           ),
+                        ],
                         const SizedBox(height: 18),
                         const Center(
                           child: Text(
@@ -2682,8 +2702,12 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
             dossierUrl: widget.dossierUrl,
             selectedDossierDocId: _rightSelectedDossierDocId,
             onUpgradeTapped: () async {
-              _triggerElectricHapticBuzz();
-              setState(() => _rightWorkspaceMode = 'DOSSIER');
+              _triggerDeepDiveOceanHaptic();
+              if (!isSubscribed) {
+                _showPaywallModal(context, 'UNLOCK MASTER DOSSIER VAULT');
+              } else {
+                setState(() => _rightWorkspaceMode = 'DOSSIER');
+              }
             },
           ),
           const SizedBox(height: 14),
@@ -2857,8 +2881,12 @@ class _TailzsQuantTerminalState extends State<TailzsQuantTerminal> {
           dossierUrl: widget.dossierUrl,
           selectedDossierDocId: selectedDossierDocId,
           onUpgradeTapped: () async {
-            _triggerElectricHapticBuzz();
-            setState(() => _rightWorkspaceMode = 'DOSSIER');
+            _triggerDeepDiveOceanHaptic();
+            if (!isSubscribed) {
+              _showPaywallModal(context, 'UNLOCK MASTER DOSSIER VAULT');
+            } else {
+              setState(() => _leftWorkspaceMode = 'DOSSIER');
+            }
           },
         ),
         const SizedBox(height: 14),
